@@ -33,6 +33,8 @@ import type {
   FormDraft,
   HttpMethod,
   MasterForm,
+  MasterFormCreatePayload,
+  MasterFormPatchPayload,
 } from "../types";
 import {
   clearStoredFormDraft,
@@ -61,28 +63,100 @@ interface FormBuilderProps {
   saving?: boolean;
   serverError?: string;
   onCancel: () => void;
-  onSave: (payload: Record<string, unknown>) => Promise<boolean>;
+  onSave: (
+    payload: MasterFormCreatePayload | MasterFormPatchPayload,
+  ) => Promise<boolean>;
 }
 
 type Step = "details" | "sections";
+
+const INTEGER_VALIDATION_KEYS = new Set([
+  "minLength",
+  "maxLength",
+  "minItems",
+  "maxItems",
+]);
+
+const VALIDATION_RANGE_PAIRS: [string, string][] = [
+  ["min", "max"],
+  ["minLength", "maxLength"],
+  ["minItems", "maxItems"],
+];
+
+function validationErrorMessage(field: DraftField): string | null {
+  const name = field.label.trim() || field.fieldCode || "A field";
+  for (const [key, raw] of Object.entries(field.validation)) {
+    if (raw === undefined || raw === null || String(raw).trim() === "") {
+      continue;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      return `"${name}" has an invalid ${key} value.`;
+    }
+    if (
+      INTEGER_VALIDATION_KEYS.has(key) &&
+      (!Number.isInteger(value) || value < 0)
+    ) {
+      return `"${name}" ${key} must be a whole number (0 or more).`;
+    }
+  }
+  for (const [minKey, maxKey] of VALIDATION_RANGE_PAIRS) {
+    const rawMin = field.validation[minKey];
+    const rawMax = field.validation[maxKey];
+    if (
+      rawMin === undefined ||
+      rawMax === undefined ||
+      String(rawMin).trim() === "" ||
+      String(rawMax).trim() === ""
+    ) {
+      continue;
+    }
+    if (Number(rawMin) > Number(rawMax)) {
+      return `"${name}" ${minKey} cannot be greater than ${maxKey}.`;
+    }
+  }
+  return null;
+}
 
 function fieldKey(sectionIndex: number, fieldIndex: number): string {
   return `${sectionIndex}:${fieldIndex}`;
 }
 
-function draftFieldCodes(draft: FormDraft): string[] {
+interface FieldCodeOption {
+  code: string;
+  label: string;
+}
+
+function draftFieldOptions(draft: FormDraft): FieldCodeOption[] {
   const used = new Set<string>();
-  const codes: string[] = [];
+  const options: FieldCodeOption[] = [];
   const addFields = (fields: DraftField[]) => {
     fields.forEach((field, index) => {
-      codes.push(
-        uniqueCode(field.fieldCode || field.label, used, `FIELD_${index + 1}`),
+      const code = uniqueCode(
+        field.fieldCode || field.label,
+        used,
+        `FIELD_${index + 1}`,
       );
+      options.push({ code, label: field.label.trim() || code });
     });
   };
   draft.sections.forEach((section) => addFields(section.fields));
   addFields(draft.unsectionedFields);
-  return codes;
+  return options;
+}
+
+function draftFieldCodes(draft: FormDraft): string[] {
+  return draftFieldOptions(draft).map((option) => option.code);
+}
+
+function fieldCodeOptions(
+  fieldOptions: FieldCodeOption[],
+  current: string,
+): FieldCodeOption[] {
+  if (current && !fieldOptions.some((option) => option.code === current)) {
+    return [...fieldOptions, { code: current, label: current }];
+  }
+  return fieldOptions;
 }
 
 function SearchableStatusCodeInput({
@@ -288,7 +362,22 @@ export function FormBuilder({
       const stored = loadStoredFormDraft();
       if (stored) return stored.draft;
     }
-    return draftFromForm(form);
+    const initialDraft = draftFromForm(form);
+    if (!createVersion) return initialDraft;
+    return {
+      ...initialDraft,
+      sections: initialDraft.sections.map((section) => ({
+        ...section,
+        fields: section.fields.map((field) => ({
+          ...field,
+          defaultValue: undefined,
+        })),
+      })),
+      unsectionedFields: initialDraft.unsectionedFields.map((field) => ({
+        ...field,
+        defaultValue: undefined,
+      })),
+    };
   });
   const [step, setStep] = useState<Step>(() => {
     if (!form) {
@@ -591,6 +680,7 @@ export function FormBuilder({
     button: DraftButton,
   ) => {
     const entries = Object.entries(button.request?.queryParams ?? {});
+    const fieldOptions = draftFieldOptions(draft);
 
     const setParam = (entryIndex: number, nextSource: QueryParamSource) => {
       const next = Object.entries(button.request?.queryParams ?? {});
@@ -707,11 +797,11 @@ export function FormBuilder({
                   </label>
                 ) : (
                   <label className="field">
-                    <span className="field-label">Source field code</span>
-                    <input
-                      className="input mono"
-                      list="builder-field-codes"
-                      placeholder="e.g. CLIENT_AGE"
+                    <span className="field-label">
+                      Source field code <b>*</b>
+                    </span>
+                    <select
+                      className="input"
                       value={source.sourceFieldCode}
                       onChange={(event) =>
                         setParam(entryIndex, {
@@ -719,7 +809,17 @@ export function FormBuilder({
                           sourceFieldCode: event.target.value,
                         })
                       }
-                    />
+                    >
+                      <option value="">Select a field</option>
+                      {fieldCodeOptions(
+                        fieldOptions,
+                        source.sourceFieldCode,
+                      ).map(({ code, label }) => (
+                        <option key={code} value={code}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 )}
                 <div className="query-param-remove">
@@ -857,6 +957,14 @@ export function FormBuilder({
       setError("Enter a unique form code.");
       return false;
     }
+    const organizationId = draft.organizationId.trim();
+    if (!form && organizationId && !/^[0-9a-fA-F]{24}$/.test(organizationId)) {
+      setStep("details");
+      setError(
+        "Organization ID must be a 24-character hexadecimal ObjectId, or left blank.",
+      );
+      return false;
+    }
     return true;
   };
 
@@ -874,6 +982,13 @@ export function FormBuilder({
     ) {
       setError("Give every field a label, or remove the empty field.");
       return false;
+    }
+    for (const field of allFields) {
+      const validationError = validationErrorMessage(field);
+      if (validationError) {
+        setError(validationError);
+        return false;
+      }
     }
     if (
       allFields.some(
@@ -940,7 +1055,7 @@ export function FormBuilder({
       for (const mapping of button.request?.payloadMapping ?? []) {
         if (
           !mapping.targetField.trim() ||
-          !mapping.sourceType.trim() ||
+          !codeOf(mapping.sourceType).trim() ||
           !mapping.sourceFieldCode.trim()
         ) {
           setError(
@@ -949,7 +1064,7 @@ export function FormBuilder({
           return false;
         }
         if (
-          mapping.sourceType === "FORM_FIELD" &&
+          codeOf(mapping.sourceType) === "FORM_FIELD" &&
           !knownFieldCodes.has(mapping.sourceFieldCode)
         ) {
           setError(
@@ -1039,7 +1154,7 @@ export function FormBuilder({
   const unsectionedEditorIndex = hasUnsectionedFields
     ? unsectionedPosition
     : draft.sections.length;
-  const fieldCodeSuggestions = draftFieldCodes(draft);
+  const fieldCodeSuggestions = draftFieldOptions(draft);
 
   return createPortal(
     <div
@@ -1996,11 +2111,6 @@ export function FormBuilder({
                   Buttons can call an API, open a page, or show a message. API
                   buttons are available in the preview.
                 </p>
-                <datalist id="builder-field-codes">
-                  {fieldCodeSuggestions.map((code) => (
-                    <option key={code} value={code} />
-                  ))}
-                </datalist>
                 <datalist id="builder-source-types">
                   <option value="FORM_FIELD" />
                 </datalist>
@@ -2305,7 +2415,7 @@ export function FormBuilder({
                                         className="input mono"
                                         list="builder-source-types"
                                         placeholder="FORM_FIELD"
-                                        value={mapping.sourceType}
+                                        value={codeOf(mapping.sourceType)}
                                         onChange={(event) =>
                                           updateRequest(index, (request) => ({
                                             ...request,
@@ -2328,10 +2438,8 @@ export function FormBuilder({
                                       <span className="field-label">
                                         Source field code <b>*</b>
                                       </span>
-                                      <input
-                                        className="input mono"
-                                        list="builder-field-codes"
-                                        placeholder="CLIENT_AGE"
+                                      <select
+                                        className="input"
                                         value={mapping.sourceFieldCode}
                                         onChange={(event) =>
                                           updateRequest(index, (request) => ({
@@ -2349,7 +2457,17 @@ export function FormBuilder({
                                             ),
                                           }))
                                         }
-                                      />
+                                      >
+                                        <option value="">Select a field</option>
+                                        {fieldCodeOptions(
+                                          fieldCodeSuggestions,
+                                          mapping.sourceFieldCode,
+                                        ).map(({ code, label }) => (
+                                          <option key={code} value={code}>
+                                            {label}
+                                          </option>
+                                        ))}
+                                      </select>
                                     </label>
                                     <div className="checkbox-row">
                                       <label className="checkbox">
@@ -2451,7 +2569,7 @@ export function FormBuilder({
                               />
                               <ResponseMessageField
                                 hint="Enter the response path."
-                                label="Success message"
+                                label="Success message Keyholder"
                                 value={
                                   button.responseHandling.onSuccess
                                     ?.responseMessage ?? ""
@@ -2518,7 +2636,7 @@ export function FormBuilder({
                               />
                               <ResponseMessageField
                                 hint="Enter the response path."
-                                label="Failure message"
+                                label="Failure message Keyholder"
                                 value={
                                   button.responseHandling.onFailure
                                     ?.responseMessage ?? ""

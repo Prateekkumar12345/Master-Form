@@ -14,6 +14,7 @@ HTTP_METHOD = "HttpMethod"
 FIELD_TYPE = "FieldType"
 FIELD_DATA_TYPE = "FieldDataType"
 FIELD_VALIDATION_RULE = "FieldValidationRule"
+QUERY_PARAMETER_SOURCE_TYPE = "QueryParameterSourceType"
 
 VALUE_SET_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
@@ -104,6 +105,14 @@ VALUE_SET_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"code": "maxItems", "display": "Maximum items"},
         ],
     },
+    {
+        "name": QUERY_PARAMETER_SOURCE_TYPE,
+        "version": "1.0",
+        "codes": [
+            {"code": "FORM_FIELD", "display": "Form field"},
+            {"code": "CONSTANT", "display": "Constant"},
+        ],
+    },
 )
 
 SET_BY_FIELD = {
@@ -182,8 +191,17 @@ def codes_for_validation(document: dict[str, Any]) -> dict[str, Any]:
         if "executionType" in button:
             button["executionType"] = _code(button["executionType"])
         request = button.get("request")
-        if request is not None and "httpMethod" in request:
-            request["httpMethod"] = _code(request["httpMethod"])
+        if request is not None:
+            if "httpMethod" in request:
+                request["httpMethod"] = _code(request["httpMethod"])
+            if isinstance(request.get("queryParams"), dict):
+                for value in request["queryParams"].values():
+                    if isinstance(value, dict) and "sourceType" in value:
+                        value["sourceType"] = _code(value["sourceType"])
+            if isinstance(request.get("payloadMapping"), list):
+                for mapping in request["payloadMapping"]:
+                    if isinstance(mapping, dict) and "sourceType" in mapping:
+                        mapping["sourceType"] = _code(mapping["sourceType"])
     for section in result.get("sections", []):
         for field in section.get("fields", []):
             for key in ("type", "dataType"):
@@ -217,12 +235,29 @@ def references_for_storage(
                 value_sets,
             )
         request = button.get("request")
-        if request is not None and "httpMethod" in request:
-            request["httpMethod"] = reference_for(
-                _code(request["httpMethod"]),
-                SET_BY_FIELD["httpMethod"],
-                value_sets,
-            )
+        if request is not None:
+            if "httpMethod" in request:
+                request["httpMethod"] = reference_for(
+                    _code(request["httpMethod"]),
+                    SET_BY_FIELD["httpMethod"],
+                    value_sets,
+                )
+            if isinstance(request.get("queryParams"), dict):
+                for value in request["queryParams"].values():
+                    if isinstance(value, dict) and "sourceType" in value:
+                        value["sourceType"] = reference_for(
+                            _code(value["sourceType"]),
+                            QUERY_PARAMETER_SOURCE_TYPE,
+                            value_sets,
+                        )
+            if isinstance(request.get("payloadMapping"), list):
+                for mapping in request["payloadMapping"]:
+                    if isinstance(mapping, dict) and "sourceType" in mapping:
+                        mapping["sourceType"] = reference_for(
+                            _code(mapping["sourceType"]),
+                            QUERY_PARAMETER_SOURCE_TYPE,
+                            value_sets,
+                        )
     for section in result.get("sections", []):
         for field in section.get("fields", []):
             for key in ("type", "dataType"):

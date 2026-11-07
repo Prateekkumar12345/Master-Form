@@ -6,12 +6,18 @@ import type {
   ExecutionType,
   FieldOption,
   FieldType,
+  FormButtonPayload,
+  FormContentsPayload,
   FormDraft,
   FormField,
+  FormFieldPayload,
   FormLayout,
+  FormSectionPayload,
   FormType,
   HttpMethod,
   MasterForm,
+  MasterFormCreatePayload,
+  MasterFormPatchPayload,
   OptionDisplayType,
   ResponseHandling,
   RuleReference,
@@ -515,7 +521,7 @@ function cleanParams(
 function buildButton(
   button: DraftButton,
   usedCodes: Set<string>,
-): Record<string, unknown> {
+): FormButtonPayload {
   const code = uniqueCode(
     button.ButtonCode || button.Buttonlabel,
     usedCodes,
@@ -526,7 +532,8 @@ function buildButton(
       ? {
           ...(button.request ?? {}),
           endpoint: button.request?.endpoint?.trim() || null,
-          httpMethod: button.request?.httpMethod ?? "POST",
+          httpMethod: (codeOf(button.request?.httpMethod) ||
+            "POST") as HttpMethod,
           contentType: button.request?.contentType?.trim() || "application/json",
           pathParams: cleanParams(button.request?.pathParams),
           queryParams: cleanParams(button.request?.queryParams),
@@ -534,12 +541,12 @@ function buildButton(
             .filter(
               (mapping) =>
                 mapping.targetField.trim() &&
-                mapping.sourceType.trim() &&
+                codeOf(mapping.sourceType).trim() &&
                 mapping.sourceFieldCode.trim(),
             )
             .map((mapping) => ({
               targetField: mapping.targetField.trim(),
-              sourceType: mapping.sourceType.trim(),
+              sourceType: codeOf(mapping.sourceType).trim(),
               sourceFieldCode: mapping.sourceFieldCode.trim(),
               required: Boolean(mapping.required),
             })),
@@ -581,13 +588,21 @@ function buildButton(
 
 export function buildFormPayload(
   draft: FormDraft,
+  mode: "create",
+): MasterFormCreatePayload;
+export function buildFormPayload(
+  draft: FormDraft,
+  mode: "update",
+): MasterFormPatchPayload;
+export function buildFormPayload(
+  draft: FormDraft,
   mode: "create" | "update",
-): Record<string, unknown> {
+): MasterFormCreatePayload | MasterFormPatchPayload {
   const sectionCodes = new Set<string>();
   sectionCodes.add(UNSECTIONED_FIELDS_CODE);
   const fieldCodes = new Set<string>();
 
-  const sections = draft.sections.map((section, sectionIndex) => ({
+  const sections: FormSectionPayload[] = draft.sections.map((section, sectionIndex) => ({
     sectionCode: uniqueCode(
       section.sectionCode || section.title,
       sectionCodes,
@@ -597,7 +612,7 @@ export function buildFormPayload(
     displayOrder: sectionIndex,
     fields: section.fields.map((field, fieldIndex) => {
       const optionValues = new Set<string>();
-      const payload: Record<string, unknown> = {
+      const payload: FormFieldPayload = {
         fieldCode: uniqueCode(
           field.fieldCode || field.label,
           fieldCodes,
@@ -636,7 +651,7 @@ export function buildFormPayload(
   if (draft.unsectionedFields.length) {
     const fields = draft.unsectionedFields.map((field, fieldIndex) => {
       const optionValues = new Set<string>();
-      const payload: Record<string, unknown> = {
+      const payload: FormFieldPayload = {
         fieldCode: uniqueCode(
           field.fieldCode || field.label,
           fieldCodes,
@@ -685,7 +700,7 @@ export function buildFormPayload(
     buildButton(button, buttonCodes),
   );
 
-  const payload: Record<string, unknown> = {
+  const payload: FormContentsPayload = {
     name: draft.name.trim(),
     title: draft.title.trim(),
     description: draft.description.trim() || null,
@@ -696,9 +711,12 @@ export function buildFormPayload(
   };
 
   if (mode === "create") {
-    payload.organizationId = draft.organizationId.trim() || null;
-    payload.formCode = draft.formCode.trim();
-    payload.status = "DRAFT";
+    return {
+      ...payload,
+      organizationId: draft.organizationId.trim() || null,
+      formCode: draft.formCode.trim(),
+      status: "DRAFT",
+    };
   }
 
   return payload;

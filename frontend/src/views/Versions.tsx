@@ -505,7 +505,8 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
                 ["ARCHIVED", "PUBLISHED"].includes(codeOf(form.status))
               }
               canArchiveForm={
-                !form.isDeleted && codeOf(form.status) === "PUBLISHED"
+                !form.isDeleted &&
+                ["DRAFT", "PUBLISHED"].includes(codeOf(form.status))
               }
               canRestoreVersions={!form.isDeleted}
               canArchiveVersion={!form.isDeleted}

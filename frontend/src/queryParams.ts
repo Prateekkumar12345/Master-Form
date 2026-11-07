@@ -18,9 +18,18 @@ export interface QueryParamSource {
 export function queryParamSource(value: unknown): QueryParamSource {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
+    const rawSourceType = record.sourceType;
+    const sourceType =
+      typeof rawSourceType === "string"
+        ? rawSourceType
+        : rawSourceType !== null &&
+            typeof rawSourceType === "object" &&
+            "code" in rawSourceType &&
+            typeof rawSourceType.code === "string"
+          ? rawSourceType.code
+          : "";
     return {
-      sourceType:
-        record.sourceType === "FORM_FIELD" ? "FORM_FIELD" : "CONSTANT",
+      sourceType: sourceType === "FORM_FIELD" ? "FORM_FIELD" : "CONSTANT",
       sourceValue:
         typeof record.sourceValue === "string" ? record.sourceValue : "",
       sourceFieldCode:

@@ -30,6 +30,18 @@ export type FormLayout = "SINGLE_PAGE" | "WIZARD" | "TABS" | "ACCORDION";
 
 export type FormStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
+export type MasterFormDocumentType = "MASTER_FORM";
+
+export type Gender = "MALE" | "FEMALE" | "OTHER" | "PREFER_NOT_TO_SAY";
+
+export type DietPreference = "VEGETARIAN" | "NON_VEGETARIAN";
+
+export type DietGoal = "WEIGHT_LOSS" | "MUSCLE_GAIN" | "MAINTENANCE";
+
+export type AssessmentStatus = "SUBMITTED";
+
+export type DietPlanStatus = "PENDING_GENERATION";
+
 export type FieldType =
   | "INPUT"
   | "NUMBER"
@@ -78,7 +90,7 @@ export interface FormField {
 
 export interface RuleReference {
   rule?: ValueReference;
-  value?: number;
+  value?: number | null;
 }
 
 export interface FormSection {
@@ -90,7 +102,7 @@ export interface FormSection {
 
 export interface PayloadMapping {
   targetField: string;
-  sourceType: string;
+  sourceType: Coded;
   sourceFieldCode: string;
   required: boolean;
 }
@@ -127,8 +139,25 @@ export interface FormButton {
   responseHandling?: ResponseHandling;
 }
 
+export interface LastPublishedSwitch {
+  fromVersionId: string;
+  toVersionId: string;
+}
+
+export interface FormSnapshot {
+  name: string;
+  title: string;
+  description?: string | null;
+  formType: Coded;
+  layout: Coded;
+  Buttons: FormButton[];
+  sections: FormSection[];
+  [key: string]: Json;
+}
+
 export interface MasterForm {
   _id: string;
+  documentType?: MasterFormDocumentType;
   organizationId?: string | null;
   formCode: string;
   name: string;
@@ -141,6 +170,7 @@ export interface MasterForm {
   isDeleted: boolean;
   Buttons?: FormButton[];
   sections?: FormSection[];
+  lastPublishedSwitch?: LastPublishedSwitch | null;
   createdBy?: string;
   updatedBy?: string;
   createdAt?: string;
@@ -153,10 +183,14 @@ export interface VersionEntry {
   _id: string;
   version: number;
   status?: FormStatus;
-  snapshot: Json;
+  snapshot: FormSnapshot;
   isDeleted?: boolean;
   createdBy?: string;
   createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+  archivedBy?: string;
+  archivedAt?: string;
   deletedBy?: string;
   deletedAt?: string;
   restoredBy?: string;
@@ -173,6 +207,195 @@ export interface ListMeta {
 }
 
 export interface PaginationMeta extends ListMeta {}
+
+export interface ApiEnvelope<T> {
+  success: boolean;
+  message: string;
+  data: T;
+  meta: ListMeta | null;
+}
+
+export interface ApiErrorDetail {
+  code: string;
+  message: string;
+  details?: Json;
+}
+
+export interface ApiErrorResponse {
+  success: false;
+  error: ApiErrorDetail;
+  meta: null;
+}
+
+export interface ApiRootInfo {
+  docs: string;
+  openapi: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Master form request/query contracts                                 */
+/* ------------------------------------------------------------------ */
+
+export interface ButtonRequestPayload {
+  endpoint?: string | null;
+  httpMethod?: HttpMethod | null;
+  contentType?: string | null;
+  pathParams?: Record<string, unknown>;
+  queryParams?: Record<string, unknown>;
+  payloadMapping?: PayloadMapping[];
+}
+
+export interface FormFieldPayload {
+  fieldCode: string;
+  label: string;
+  type: FieldType;
+  dataType: DataType;
+  isRequired: boolean;
+  isEnabled: boolean;
+  displayOrder: number;
+  placeholder?: string | null;
+  defaultValue?: unknown;
+  validation?: ValidationRules | null;
+  options?: FieldOption[] | null;
+  optionsDisplayType?: OptionDisplayType | null;
+}
+
+export interface FormSectionPayload {
+  sectionCode: string;
+  title: string;
+  displayOrder: number;
+  fields: FormFieldPayload[];
+}
+
+export interface FormButtonPayload {
+  ButtonCode: string;
+  Buttonlabel: string;
+  description?: string | null;
+  executionType: ExecutionType;
+  displayOrder: number;
+  isEnabled: boolean;
+  request?: ButtonRequestPayload | null;
+  responseHandling?: ResponseHandling;
+}
+
+export type FormContentsPayload = {
+  name: string;
+  description: string | null;
+  formType: FormType;
+  title: string;
+  layout: FormLayout;
+  Buttons: FormButtonPayload[];
+  sections: FormSectionPayload[];
+};
+
+export type MasterFormCreatePayload = FormContentsPayload & {
+  organizationId: string | null;
+  formCode: string;
+  status: "DRAFT";
+};
+
+export type MasterFormPatchPayload = Partial<FormContentsPayload> & {
+  masterFormVersionId?: string | null;
+  status?: FormStatus;
+};
+
+export interface MasterFormVersionStatusPayload {
+  status: FormStatus;
+}
+
+export type MasterFormSortBy =
+  | "name"
+  | "createdAt"
+  | "updatedAt"
+  | "formCode"
+  | "formType"
+  | "status";
+
+export type SortOrder = "asc" | "desc";
+
+export interface MasterFormListQuery {
+  organizationId?: string | null;
+  formCode?: string | null;
+  formType?: FormType | null;
+  status?: FormStatus | null;
+  name?: string | null;
+  isDeleted?: boolean;
+  includeDeleted?: boolean;
+  page?: number;
+  limit?: number;
+  sortBy?: MasterFormSortBy;
+  sortOrder?: SortOrder;
+}
+
+export interface MasterFormGetQuery {
+  includeVersions?: boolean;
+  includeDeleted?: boolean;
+}
+
+export interface MasterFormVersionsQuery {
+  masterFormVersionId?: string | null;
+  includeDeleted?: boolean;
+  version?: number | null;
+  sortOrder?: SortOrder;
+  page?: number;
+  limit?: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Form action request/response contracts                              */
+/* ------------------------------------------------------------------ */
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface ClientRegistrationPayload {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string | null;
+  dateOfBirth: string;
+  gender: Gender;
+}
+
+export interface ClientRegistration extends ClientRegistrationPayload {
+  _id: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface AssessmentSubmissionPayload {
+  age: number;
+  dietPreference?: DietPreference | null;
+}
+
+export interface AssessmentSubmission extends AssessmentSubmissionPayload {
+  _id: string;
+  status: AssessmentStatus;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface DietPlanRequestPayload {
+  clientId: string;
+  planName: string;
+  goal: DietGoal;
+  calorieTarget: number;
+  durationWeeks?: number | null;
+}
+
+export interface DietPlanRequest extends DietPlanRequestPayload {
+  _id: string;
+  status: DietPlanStatus;
+  generationConfigured: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface HealthStatus {
+  status: "ok";
+}
 
 /* ------------------------------------------------------------------ */
 /* Editable draft types used by the form builder                       */

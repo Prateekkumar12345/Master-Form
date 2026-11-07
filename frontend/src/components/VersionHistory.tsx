@@ -393,6 +393,17 @@ export function VersionHistory({
                   <>
                     <button
                       className="btn btn-primary btn-sm"
+                      disabled={busy === "status-DRAFT"}
+                      type="button"
+                      onClick={() => onReopenForm(selected)}
+                    >
+                      <Icon name="edit" size={15} />
+                      {busy === "status-DRAFT"
+                        ? "Moving to draft…"
+                        : "Move form to draft"}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
                       disabled={
                         !previousAvailableVersion ||
                         busy === `publish-version-${previousAvailableVersion?._id}`
@@ -424,6 +435,22 @@ export function VersionHistory({
                       </button>
                     ) : null}
                   </>
+                ) : null}
+                {canArchiveForm &&
+                !selected.isDeleted &&
+                isCurrent &&
+                selectedLifecycleStatus === "DRAFT" ? (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={busy === "status-ARCHIVED"}
+                    type="button"
+                    onClick={onArchiveForm}
+                  >
+                    <Icon name="archive" size={15} />
+                    {busy === "status-ARCHIVED"
+                      ? "Archiving…"
+                      : "Archive Form"}
+                  </button>
                 ) : null}
                 {canArchiveVersion &&
                 !selected.isDeleted &&

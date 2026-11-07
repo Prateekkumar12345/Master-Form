@@ -1190,7 +1190,9 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
             canReopenForm={
               !form.isDeleted && (status === "ARCHIVED" || status === "PUBLISHED")
             }
-            canArchiveForm={!form.isDeleted && status === "PUBLISHED"}
+            canArchiveForm={
+              !form.isDeleted && ["DRAFT", "PUBLISHED"].includes(status)
+            }
             canRestoreVersions={!form.isDeleted}
             canArchiveVersion={!form.isDeleted}
             canDeleteVersion={!form.isDeleted}

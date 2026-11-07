@@ -151,7 +151,7 @@ function requestPayload(
   if (mappings.length) {
     for (const mapping of mappings) {
       const value =
-        mapping.sourceType === "FORM_FIELD"
+        codeOf(mapping.sourceType) === "FORM_FIELD"
           ? values[mapping.sourceFieldCode]
           : undefined;
       if (mapping.required && isEmpty(value)) {
