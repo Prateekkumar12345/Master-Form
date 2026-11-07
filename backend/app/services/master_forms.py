@@ -577,8 +577,8 @@ async def _change_status(
     if selected_version is not None:
         updates["$set"].update(stored_snapshot)
         updates["$set"]["currentVersion"] = selected_version["version"]
-        updates["$set"]["versions.$[selected].status"] = "DRAFT"
         if selected_version["_id"] != active_version["_id"]:
+            updates["$set"]["versions.$[selected].status"] = "DRAFT"
             array_filters.append({"selected._id": selected_version["_id"]})
         else:
             updates["$set"]["versions.$[active].status"] = "DRAFT"

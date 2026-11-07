@@ -14,6 +14,7 @@ import { canEditForm, codeOf, errorMessage } from "../utils";
 type PendingAction =
   | { kind: "publish"; version: VersionEntry }
   | { kind: "archiveForm" }
+  | { kind: "deleteForm" }
   | { kind: "archiveVersion"; version: VersionEntry }
   | { kind: "draftVersion"; version: VersionEntry }
   | { kind: "deleteVersion"; version: VersionEntry };
@@ -44,7 +45,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
     setLoadingForms(true);
     const result = await send(
       "GET",
-      "/master-forms?limit=100&sortBy=name&sortOrder=asc",
+      "/master-forms?limit=100&sortBy=name&sortOrder=asc&includeDeleted=true",
     );
     setLoadingForms(false);
     if (!result.ok) {
@@ -69,27 +70,36 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
       }
       setLoading(true);
       setError("");
-      const [formResult, versionResult] = await Promise.all([
-        send("GET", `/master-forms/${encodeURIComponent(id)}`),
-        send(
-          "GET",
-          `/master-forms/${encodeURIComponent(id)}/versions?limit=100&sortOrder=desc&includeDeleted=true`,
-        ),
-      ]);
-      setLoading(false);
+      const formResult = await send(
+        "GET",
+        `/master-forms/${encodeURIComponent(id)}?includeDeleted=true`,
+      );
       if (!formResult.ok) {
+        setLoading(false);
         setError(errorMessage(formResult));
         setForm(null);
         setVersions([]);
         return;
       }
+      const loadedForm = formResult.payload?.data as MasterForm;
+      if (loadedForm.isDeleted) {
+        setForm(loadedForm);
+        setVersions([]);
+        setLoading(false);
+        return;
+      }
+      const versionResult = await send(
+        "GET",
+        `/master-forms/${encodeURIComponent(id)}/versions?limit=100&sortOrder=desc&includeDeleted=true`,
+      );
+      setLoading(false);
       if (!versionResult.ok) {
         setError(errorMessage(versionResult));
         setVersions([]);
-        setForm(formResult.payload?.data as MasterForm);
+        setForm(loadedForm);
         return;
       }
-      setForm(formResult.payload?.data as MasterForm);
+      setForm(loadedForm);
       setVersions(versionResult.payload?.data ?? []);
     },
     [send],
@@ -246,7 +256,11 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
   };
 
   const archiveForm = async () => {
-    if (!form || codeOf(form.status) !== "PUBLISHED" || busy) return;
+    if (
+      !form ||
+      !["DRAFT", "PUBLISHED"].includes(codeOf(form.status)) ||
+      busy
+    ) return;
     setBusy("status-ARCHIVED");
     setError("");
     const result = await send(
@@ -262,6 +276,53 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
     setNotice("The form is archived. You can reopen it as a draft at any time.");
     await loadHistory(form._id);
     await loadForms();
+  };
+
+  const deleteForm = async () => {
+    if (!form || codeOf(form.status) !== "ARCHIVED" || busy) return;
+    const deletedId = form._id;
+    setBusy("delete-form");
+    setError("");
+    const result = await send(
+      "DELETE",
+      `/master-forms/${encodeURIComponent(deletedId)}`,
+    );
+    setBusy(null);
+    if (!result.ok) {
+      setError(errorMessage(result));
+      return;
+    }
+    const deletedForm = result.payload?.data as MasterForm | undefined;
+    if (!deletedForm) {
+      setError("The form was deleted, but the API did not return the updated form.");
+      return;
+    }
+    setForms((current) => [
+      ...current.filter((item) => item._id !== deletedId),
+      deletedForm,
+    ]);
+    setForm(deletedForm);
+    setVersions([]);
+    setNotice("The archived form was deleted. You can restore it later from the form library.");
+  };
+
+  const restoreForm = async () => {
+    if (!form?.isDeleted || busy) return;
+    const restoredId = form._id;
+    setBusy("restore-form");
+    setError("");
+    const result = await send(
+      "POST",
+      `/master-forms/${encodeURIComponent(restoredId)}/restore`,
+    );
+    setBusy(null);
+    if (!result.ok) {
+      setError(errorMessage(result));
+      return;
+    }
+    setNotice("The form was restored to the library.");
+    await loadForms();
+    await loadHistory(restoredId);
   };
 
   const restoreVersion = async (version: VersionEntry) => {
@@ -328,6 +389,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
     try {
       if (confirm.kind === "publish") await publishVersion(confirm.version);
       else if (confirm.kind === "archiveForm") await archiveForm();
+      else if (confirm.kind === "deleteForm") await deleteForm();
       else if (confirm.kind === "archiveVersion")
         await archiveVersion(confirm.version);
       else if (confirm.kind === "draftVersion")
@@ -360,6 +422,14 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
               "Archiving makes the form inactive. It stays in the library and can be reopened as a draft later.",
             label: "Archive Form",
             tone: "primary" as const,
+          }
+      : confirm.kind === "deleteForm"
+        ? {
+            title: "Delete this archived form?",
+            message:
+              "The archived form will be removed from the active form library. You can restore it later.",
+            label: "Delete form",
+            tone: "danger" as const,
           }
       : confirm.kind === "archiveVersion"
         ? {
@@ -451,7 +521,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
             ))}
           </select>
           <span className="field-hint">
-            Showing active forms. Restore a deleted form from the library first.
+            Deleted forms are included so you can restore them from version history.
           </span>
         </label>
         {form ? (
@@ -508,6 +578,9 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
                 !form.isDeleted &&
                 ["DRAFT", "PUBLISHED"].includes(codeOf(form.status))
               }
+              canDeleteForm={
+                !form.isDeleted && codeOf(form.status) === "ARCHIVED"
+              }
               canRestoreVersions={!form.isDeleted}
               canArchiveVersion={!form.isDeleted}
               canDeleteVersion={!form.isDeleted}
@@ -531,6 +604,8 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
               }
               onReopenForm={(version) => void reopenFormAsDraft(version)}
               onArchiveForm={() => setConfirm({ kind: "archiveForm" })}
+              onDeleteForm={() => setConfirm({ kind: "deleteForm" })}
+              onRestoreForm={() => void restoreForm()}
               onArchiveVersion={(version) =>
                 setConfirm({ kind: "archiveVersion", version })
               }

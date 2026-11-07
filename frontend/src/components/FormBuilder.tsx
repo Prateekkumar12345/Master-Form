@@ -366,16 +366,18 @@ export function FormBuilder({
     if (!createVersion) return initialDraft;
     return {
       ...initialDraft,
-      sections: initialDraft.sections.map((section) => ({
-        ...section,
-        fields: section.fields.map((field) => ({
-          ...field,
-          defaultValue: undefined,
-        })),
-      })),
-      unsectionedFields: initialDraft.unsectionedFields.map((field) => ({
-        ...field,
-        defaultValue: undefined,
+      sections: [],
+      unsectionedFields: [],
+      unsectionedPosition: 0,
+      Buttons: initialDraft.Buttons.map((button) => ({
+        ...button,
+        request: button.request
+          ? {
+              ...button.request,
+              payloadMapping: [],
+              queryParams: {},
+            }
+          : null,
       })),
     };
   });

@@ -260,6 +260,51 @@ class PublishedToDraftTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.current["versions"][0]["snapshot"], self.selected_snapshot)
         self.assertEqual(result["currentVersion"], 1)
 
+    async def test_reopening_selected_active_version_uses_only_active_array_filter(
+        self,
+    ) -> None:
+        with (
+            patch(
+                "app.services.master_forms.actor_object_id",
+                return_value=ObjectId(),
+            ),
+            patch(
+                "app.services.master_forms.get_master_forms_collection",
+                return_value=self.collection,
+            ),
+            patch(
+                "app.services.master_forms.load_value_set_references",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "app.services.master_forms.reference_for",
+                side_effect=lambda code, _set, _values: {"code": code},
+            ),
+            patch(
+                "app.services.master_forms.references_for_storage",
+                side_effect=lambda document, _values: document,
+            ),
+        ):
+            await update_master_form(
+                str(self.form_id),
+                MasterFormPatch(
+                    status="DRAFT",
+                    masterFormVersionId=str(self.active_version_id),
+                ),
+            )
+
+        _, update = self.collection.find_one_and_update.await_args.args[:2]
+        self.assertEqual(
+            update["$set"]["versions.$[active].status"],
+            "DRAFT",
+        )
+        self.assertNotIn("versions.$[selected].status", update["$set"])
+        self.assertEqual(
+            self.collection.find_one_and_update.await_args.kwargs["array_filters"],
+            [{"active._id": self.active_version_id}],
+        )
+
     async def test_reopening_with_multiple_versions_requires_a_selection(self) -> None:
         with (
             patch(

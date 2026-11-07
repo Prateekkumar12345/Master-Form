@@ -26,6 +26,7 @@ interface VersionHistoryProps {
   busy?: string | null;
   canReopenForm: boolean;
   canArchiveForm: boolean;
+  canDeleteForm: boolean;
   canPublishSelected: boolean;
   canRestoreVersions: boolean;
   canArchiveVersion: boolean;
@@ -37,6 +38,8 @@ interface VersionHistoryProps {
   onPublishCurrent: () => void;
   onReopenForm: (version?: VersionEntry) => void;
   onArchiveForm: () => void;
+  onDeleteForm: () => void;
+  onRestoreForm: () => void;
   onArchiveVersion: (version: VersionEntry) => void;
   onMoveVersionToDraft: (version: VersionEntry) => void;
   onDeleteVersion: (version: VersionEntry) => void;
@@ -177,6 +180,7 @@ export function VersionHistory({
   busy = null,
   canReopenForm,
   canArchiveForm,
+  canDeleteForm,
   canPublishSelected,
   canRestoreVersions,
   canArchiveVersion,
@@ -188,6 +192,8 @@ export function VersionHistory({
   onPublishCurrent,
   onReopenForm,
   onArchiveForm,
+  onDeleteForm,
+  onRestoreForm,
   onArchiveVersion,
   onMoveVersionToDraft,
   onDeleteVersion,
@@ -296,6 +302,23 @@ export function VersionHistory({
       </aside>
 
       <div className="version-detail">
+        {form.isDeleted ? (
+          <Notice tone="info">
+            This form has been deleted from the library. You can restore it to
+            make it available again.
+            <div className="button-row">
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={busy === "restore-form"}
+                type="button"
+                onClick={onRestoreForm}
+              >
+                <Icon name="restore" size={15} />
+                {busy === "restore-form" ? "Restoring…" : "Restore form"}
+              </button>
+            </div>
+          </Notice>
+        ) : null}
         {selected ? (
           <>
             <header className="version-detail-head">
@@ -372,19 +395,32 @@ export function VersionHistory({
                 !selected.isDeleted &&
                 isCurrent &&
                 selectedLifecycleStatus === "ARCHIVED" ? (
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={
-                      busy === "reopen-form" || busy === "status-DRAFT"
-                    }
-                    type="button"
-                    onClick={() => onReopenForm()}
-                  >
-                    <Icon name="edit" size={15} />
-                    {busy === "reopen-form" || busy === "status-DRAFT"
-                      ? "Moving to draft…"
-                      : "Move form to draft"}
-                  </button>
+                  <>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={
+                        busy === "reopen-form" || busy === "status-DRAFT"
+                      }
+                      type="button"
+                      onClick={() => onReopenForm()}
+                    >
+                      <Icon name="edit" size={15} />
+                      {busy === "reopen-form" || busy === "status-DRAFT"
+                        ? "Moving to draft…"
+                        : "Move form to draft"}
+                    </button>
+                    {canDeleteForm ? (
+                      <button
+                        className="btn btn-danger btn-sm"
+                        disabled={busy === "delete-form"}
+                        type="button"
+                        onClick={onDeleteForm}
+                      >
+                        <Icon name="trash" size={15} />
+                        {busy === "delete-form" ? "Deleting…" : "Delete form"}
+                      </button>
+                    ) : null}
+                  </>
                 ) : null}
                 {canReopenForm &&
                 !selected.isDeleted &&

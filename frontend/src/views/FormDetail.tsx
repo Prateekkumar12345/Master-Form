@@ -1193,6 +1193,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
             canArchiveForm={
               !form.isDeleted && ["DRAFT", "PUBLISHED"].includes(status)
             }
+            canDeleteForm={!form.isDeleted && status === "ARCHIVED"}
             canRestoreVersions={!form.isDeleted}
             canArchiveVersion={!form.isDeleted}
             canDeleteVersion={!form.isDeleted}
@@ -1224,6 +1225,8 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
               void changeStatus("DRAFT", version?._id)
             }
             onArchiveForm={() => setConfirm({ kind: "archive" })}
+            onDeleteForm={() => setConfirm({ kind: "deleteForm" })}
+            onRestoreForm={() => void restoreForm()}
             onArchiveVersion={(version) =>
               setConfirm({ kind: "archiveVersion", version })
             }
