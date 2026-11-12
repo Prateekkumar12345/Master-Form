@@ -82,12 +82,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
         return;
       }
       const loadedForm = formResult.payload?.data as MasterForm;
-      if (loadedForm.isDeleted) {
-        setForm(loadedForm);
-        setVersions([]);
-        setLoading(false);
-        return;
-      }
+      // Deleted forms keep their saved history so it can still be reviewed.
       const versionResult = await send(
         "GET",
         `/master-forms/${encodeURIComponent(id)}/versions?limit=100&sortOrder=desc&includeDeleted=true`,
@@ -185,7 +180,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
   };
 
   const deleteVersion = async (version: VersionEntry) => {
-    if (!form || version.version === form.currentVersion || busy) return;
+    if (!form || busy) return;
     setBusy(`delete-version-${version._id}`);
     setError("");
     const result = await send(
@@ -199,7 +194,9 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
       setError(errorMessage(result));
       return;
     }
-    setNotice(`Archived version ${version.version} was moved to Deleted versions.`);
+    setNotice(
+      `Version ${version.version} was deleted. The form is still in the form library and this version can be restored.`,
+    );
     await loadHistory(form._id);
   };
 
@@ -302,8 +299,9 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
       deletedForm,
     ]);
     setForm(deletedForm);
-    setVersions([]);
-    setNotice("The archived form was deleted. You can restore it later from the form library.");
+    setNotice(
+      "The form was deleted from the library. Its version history is kept and stays visible; restore the form to use it again.",
+    );
   };
 
   const restoreForm = async () => {
@@ -425,9 +423,9 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
           }
       : confirm.kind === "deleteForm"
         ? {
-            title: "Delete this archived form?",
+            title: "Delete this form from the library?",
             message:
-              "The archived form will be removed from the active form library. You can restore it later.",
+              "This deletes the whole form from the form library. Its saved versions stay stored and readable, and you can restore the form later. To remove a single version, archive that version and use Delete version instead.",
             label: "Delete form",
             tone: "danger" as const,
           }
@@ -448,9 +446,11 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
               tone: "primary" as const,
             }
           : {
-              title: `Delete archived version ${confirm.version.version}?`,
+              title: `Delete version ${confirm.version.version}?`,
               message:
-                "This moves the archived version to Deleted versions. You can restore it later.",
+                confirm.version.version === form?.currentVersion
+                  ? "This deletes the active version. The highest remaining version becomes active and its saved definition is applied to the form. You can restore the deleted version later."
+                  : "This deletes only this saved version. The form stays in the form library and its other versions are unchanged. You can restore the version later.",
               label: "Delete version",
               tone: "danger" as const,
             }
@@ -529,7 +529,10 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
             <div>
               <span>Status</span>
               <strong>
-                <StatusBadge status={codeOf(form.status)} />
+                <StatusBadge
+                  deleted={form.isDeleted}
+                  status={codeOf(form.status)}
+                />
               </strong>
             </div>
             <div>

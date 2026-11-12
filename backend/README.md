@@ -35,9 +35,9 @@ Health check: <http://127.0.0.1:8000/api/v1/health>
 | GET | `/api/v1/master-forms/{masterFormId}` | Retrieve one form; optional versions and soft-deleted forms |
 | GET | `/api/v1/master-forms` | List forms with filters, pagination, and optional soft-deleted forms |
 | PATCH | `/api/v1/master-forms/{masterFormId}` | Update current or selected version, or change status |
-| GET | `/api/v1/master-forms/{masterFormId}/versions` | Retrieve version history, or one version with `?masterFormVersionId=`; `includeDeleted=true` includes deleted snapshots |
+| GET | `/api/v1/master-forms/{masterFormId}/versions` | Retrieve version history, or one version with `?masterFormVersionId=`; `includeDeleted=true` includes deleted snapshots. History stays readable after the form is soft-deleted |
 | PATCH | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}` | Set a saved version to `PUBLISHED`, `ARCHIVED`, or `DRAFT` |
-| DELETE | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}` | Soft-delete an inactive version in any form status; active versions cannot be deleted |
+| DELETE | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}` | Soft-delete an archived version. On an archived form the active version can be deleted when another version remains; the highest remaining version becomes active. The master form stays in the library |
 | POST | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}/restore` | Restore a deleted version in any form status without making it active |
 | DELETE | `/api/v1/master-forms/{masterFormId}` | Soft-delete an archived form |
 | POST | `/api/v1/master-forms/{masterFormId}/restore` | Restore a soft-deleted form |
@@ -72,6 +72,14 @@ names can be overridden with `MONGODB_CLIENTS_COLLECTION`,
 Diet-plan requests remain pending because generation logic is not configured.
 The login path is exposed for the stored form but does not authenticate or
 persist credentials.
+
+A button's `responseHandling.onSuccess.responseMessage` and
+`responseHandling.onFailure.responseMessage` store a **response path**
+(keyholder) into the response body, not a literal message. The sample forms use
+`message` for success and `error.message` for failure, so the text shown to the
+person filling the form comes from the standard envelope: `message` on a
+`{ "success": true, ... }` response and `error.message` on a
+`{ "success": false, "error": { ... } }` response.
 
 ### Testing and authentication
 
@@ -143,10 +151,15 @@ only an inactive version, and `DRAFT` moves an archived inactive version back
 to DRAFT; neither changes the parent form's status or active version. The
 active version is managed through the master-form lifecycle.
 
-Deleting a historical version is restricted to DRAFT forms and removes a
-snapshot without renumbering the rest. The current version and the last
+Deleting a historical version affects only that snapshot: the master form stays
+in the form library with its current definition, and other versions are
+unchanged. The snapshot is soft-deleted without renumbering the rest, so it can
+be restored later. The current version and the last
 remaining snapshot can never be deleted. A master form can be soft-deleted
-regardless of its lifecycle status. The unique `(organizationId, formCode)` index reserves codes for
+regardless of its lifecycle status. Deleting a form never removes its saved
+version snapshots: the version-history endpoint keeps returning them so they
+can be reviewed, and they become fully usable again when the form is restored.
+The unique `(organizationId, formCode)` index reserves codes for
 soft-deleted forms as well, allowing restoration without a uniqueness race.
 
 ### Controlled value sets
@@ -198,3 +211,33 @@ The migration seeds value sets and updates existing master forms and version
 snapshots to reference them. It is idempotent: when an existing value set is
 missing a code that the application now requires, the migration adds that code
 while preserving the codes already configured.
+
+### Sample forms
+
+Three sample master forms exercise the form-action routes, each with an `API`
+button wired to its endpoint and keyholders `message` / `error.message`:
+
+| Form | Form code | Endpoint |
+|---|---|---|
+| Sample Client Registration | `DEMO_CLIENT_REGISTRATION` | `POST /api/v1/clients` |
+| Sample Nutrition Assessment | `DEMO_NUTRITION_ASSESSMENT` | `POST /api/v1/assessments/submit` |
+| Sample Diet Plan Request | `DEMO_DIET_PLAN_REQUEST` | `POST /api/v1/diet-plans/generate` |
+
+Seed or repair them from the backend folder. Run the read-only dry run first:
+
+```powershell
+python -m scripts.seed_sample_forms
+```
+
+After reviewing its report, apply it:
+
+```powershell
+python -m scripts.seed_sample_forms --apply
+```
+
+Run the value-set migration first if it has not been applied; the service
+reports `VALUE_SET_NOT_CONFIGURED` otherwise. The seed is idempotent: it creates
+a missing form and publishes it, repairs literal button messages to the
+`message` / `error.message` keyholders while preserving the rest of the
+definition (and re-publishes the resulting version), and leaves an
+already-correct published form untouched.

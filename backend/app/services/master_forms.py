@@ -625,9 +625,11 @@ async def get_master_form_versions(
     """
     form_id = object_id(master_form_id)
     collection = get_master_forms_collection()
+    # A soft-deleted form keeps its saved history readable so the versions can
+    # still be reviewed (and the form restored) without losing context.
     document = await collection.find_one(
-        {"_id": form_id, "isDeleted": False},
-        projection={"versions": 1, "currentVersion": 1},
+        {"_id": form_id},
+        projection={"versions": 1, "currentVersion": 1, "isDeleted": 1},
     )
     if document is None:
         raise api_error(404, "MASTER_FORM_NOT_FOUND", "Master form was not found.")
@@ -888,7 +890,13 @@ async def edit_master_form_version(
 async def delete_master_form_version(
     master_form_id: str, master_form_version_id: str
 ) -> dict[str, Any]:
-    """Soft-delete a historical snapshot without removing its data."""
+    """Soft-delete a saved snapshot without removing its data.
+
+    Historical versions must be archived before they can be deleted. On an
+    archived form the active version can also be deleted when another version
+    remains: the highest remaining version becomes active and its saved
+    definition is applied to the form.
+    """
     form_id = object_id(master_form_id)
     version_id = version_object_id(master_form_version_id)
     actor = actor_object_id()
@@ -899,19 +907,15 @@ async def delete_master_form_version(
     require_active_version(current)
     entry = require_version(current, version_id)
 
-    if entry["version"] == current["currentVersion"]:
-        raise api_error(
-            409,
-            "MASTER_FORM_VERSION_IS_CURRENT",
-            "The current version cannot be deleted.",
-        )
     if entry.get("isDeleted", False):
         raise api_error(
             409,
             "MASTER_FORM_VERSION_ALREADY_DELETED",
             "The master form version is already deleted.",
         )
-    if entry.get("status", "DRAFT") != "ARCHIVED":
+
+    is_current = entry["version"] == current["currentVersion"]
+    if not is_current and entry.get("status", "DRAFT") != "ARCHIVED":
         raise api_error(
             409,
             "MASTER_FORM_VERSION_NOT_ARCHIVED",
@@ -919,6 +923,60 @@ async def delete_master_form_version(
         )
 
     now = datetime.now(UTC)
+
+    if is_current:
+        if codes_for_validation(current)["status"] != "ARCHIVED":
+            raise api_error(
+                409,
+                "MASTER_FORM_VERSION_IS_CURRENT",
+                "The active version can only be deleted while the form is archived. Archive the form first.",
+            )
+        remaining = [
+            version
+            for version in current.get("versions", [])
+            if version["_id"] != version_id and not version.get("isDeleted", False)
+        ]
+        if not remaining:
+            raise api_error(
+                409,
+                "MASTER_FORM_LAST_VERSION",
+                "The only saved version cannot be deleted. Create another version first.",
+            )
+        replacement = max(remaining, key=lambda item: item["version"])
+        snapshot = replacement.get("snapshot") or {}
+        updates: dict[str, Any] = {
+            **{key: deepcopy(snapshot.get(key)) for key in SNAPSHOT_FIELDS},
+            "currentVersion": replacement["version"],
+            "versions.$[target].isDeleted": True,
+            "versions.$[target].deletedBy": actor,
+            "versions.$[target].deletedAt": now,
+            "updatedBy": actor,
+            "updatedAt": now,
+        }
+        updated = await collection.find_one_and_update(
+            {
+                "_id": form_id,
+                "isDeleted": False,
+                "currentVersion": current["currentVersion"],
+                "versions": {
+                    "$elemMatch": {
+                        "_id": version_id,
+                        "isDeleted": {"$ne": True},
+                    }
+                },
+            },
+            {"$set": updates},
+            return_document=ReturnDocument.AFTER,
+            array_filters=[{"target._id": version_id}],
+        )
+        if updated is None:
+            raise api_error(
+                409,
+                "VERSION_CONFLICT",
+                "The form changed during this deletion; retrieve it and retry.",
+            )
+        return updated
+
     result = await collection.update_one(
         {
             "_id": form_id,

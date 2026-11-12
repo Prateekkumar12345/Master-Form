@@ -97,11 +97,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
   }, [busy, publishVersionPickerOpen, versionBusy]);
 
   const loadVersions = useCallback(
-    async (isDeleted: boolean) => {
-      if (isDeleted) {
-        setVersions([]);
-        return;
-      }
+    async () => {
       setLoadingVersions(true);
       const result = await send(
         "GET",
@@ -132,7 +128,6 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
     const next = result.payload?.data as MasterForm;
     setForm(next);
     setError("");
-    if (next.isDeleted) setVersions([]);
   }, [formId, send]);
 
   useEffect(() => {
@@ -141,10 +136,11 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
 
   useEffect(() => {
     if ((tab !== "versions" && tab !== "preview") || !form) return;
-    void loadVersions(Boolean(form.isDeleted));
+    // Saved history stays readable for a deleted form; only actions are gated.
+    void loadVersions();
     // Reload when the current definition changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, form?.isDeleted, form?.currentVersion, loadVersions]);
+  }, [tab, form?.currentVersion, loadVersions]);
 
   const canEdit = canEditForm(form);
   const status = codeOf(form?.status) as FormStatus;
@@ -212,7 +208,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
           : "Your changes were saved. If the form definition changed, a new version was created.",
     );
     setCreatingVersion(false);
-    await loadVersions(false);
+    await loadVersions();
     return true;
   };
 
@@ -269,7 +265,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       );
     }
     if (selectedVersionId) setPreviewVersionNumber(updated.currentVersion);
-    await loadVersions(false);
+    await loadVersions();
     return true;
   };
 
@@ -334,7 +330,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       return;
     }
     setNotice("The form is restored and available in the library again.");
-    await loadVersions(false);
+    await loadVersions();
   };
 
   const publishVersion = async (version: VersionEntry): Promise<boolean> => {
@@ -369,7 +365,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       );
     }
     setPreviewVersionNumber(version.version);
-    await loadVersions(false);
+    await loadVersions();
     return true;
   };
 
@@ -389,7 +385,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       return;
     }
     setNotice(`Version ${version.version} was restored.`);
-    await loadVersions(false);
+    await loadVersions();
   };
 
   const archiveVersion = async (version: VersionEntry) => {
@@ -409,7 +405,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       return;
     }
     setNotice(`Version ${version.version} was archived.`);
-    await loadVersions(false);
+    await loadVersions();
   };
 
   const moveVersionToDraft = async (version: VersionEntry) => {
@@ -429,11 +425,11 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       return;
     }
     setNotice(`Version ${version.version} was moved to draft.`);
-    await loadVersions(false);
+    await loadVersions();
   };
 
   const deleteVersion = async (version: VersionEntry) => {
-    if (!form || version.version === form.currentVersion || versionBusy) return;
+    if (!form || versionBusy) return;
     setVersionBusy(`delete-version-${version._id}`);
     setError("");
     const result = await send(
@@ -447,8 +443,10 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       setError(errorMessage(result));
       return;
     }
-    setNotice(`Archived version ${version.version} was moved to Deleted versions.`);
-    await loadVersions(false);
+    setNotice(
+      `Version ${version.version} was deleted. The form is still in the form library and this version can be restored.`,
+    );
+    await loadVersions();
   };
 
   const deleteForm = async () => {
@@ -465,8 +463,10 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
       setError(errorMessage(result));
       return;
     }
-    setNotice("The archived form was deleted. You can restore it later.");
-    setVersions([]);
+    setNotice(
+      "The archived form was deleted. Its version history is kept below and you can restore the form later.",
+    );
+    await loadVersions();
   };
 
   const runConfirm = async () => {
@@ -518,9 +518,11 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
               }
             : confirm.kind === "deleteVersion"
               ? {
-                  title: `Delete archived version ${confirm.version.version}?`,
+                  title: `Delete version ${confirm.version.version}?`,
                   message:
-                    "This moves the archived version to Deleted versions. You can restore it later.",
+                    confirm.version.version === form?.currentVersion
+                      ? "This deletes the active version. The highest remaining version becomes active and its saved definition is applied to the form. You can restore the deleted version later."
+                      : "This deletes only this saved version. The form stays in the form library and its other versions are unchanged. You can restore the version later.",
                   label: "Delete version",
                   tone: "danger" as const,
                 }
@@ -535,8 +537,8 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
           : {
               title: "Delete this archived form?",
               message:
-                "The archived form will be removed from the active form library. You can restore it later.",
-              label: "Delete form",
+                "This deletes the whole form from the form library. Its saved versions stay stored and readable, but to remove only a single version archive it and use Delete version instead. You can restore the form later.",
+              label: "Delete form from library",
               tone: "danger" as const,
             }
     : null;
@@ -622,8 +624,9 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
 
       {form.isDeleted ? (
         <Notice tone="info">
-          This form is deleted. It is hidden from the library and version
-          history is unavailable until you restore it.
+          This form is deleted. It is hidden from the library, but its saved
+          version history is kept and stays readable below. Restore it to edit,
+          publish, or reuse a version.
         </Notice>
       ) : null}
       {notice ? (
@@ -1178,7 +1181,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
                 className="btn btn-ghost btn-sm"
                 disabled={loadingVersions}
                 type="button"
-                onClick={() => void loadVersions(Boolean(form.isDeleted))}
+                onClick={() => void loadVersions()}
               >
                 <Icon name="refresh" size={15} />
                 {loadingVersions ? "Refreshing…" : "Refresh"}

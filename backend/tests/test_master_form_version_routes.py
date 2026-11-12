@@ -363,6 +363,39 @@ class VersionDeletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(visible, [active])
         self.assertEqual(all_versions, [active, deleted])
 
+    async def test_history_is_readable_for_a_soft_deleted_form(self) -> None:
+        form_id = ObjectId()
+        active = {"_id": ObjectId(), "version": 1}
+        deleted = {"_id": ObjectId(), "version": 2, "isDeleted": True}
+        collection = Mock()
+        collection.find_one = AsyncMock(
+            return_value={
+                "_id": form_id,
+                "isDeleted": True,
+                "currentVersion": 1,
+                "versions": [deleted, active],
+            }
+        )
+
+        with patch(
+            "app.services.master_forms.get_master_forms_collection",
+            return_value=collection,
+        ):
+            versions, _ = await get_master_form_versions(
+                str(form_id),
+                master_form_version_id=None,
+                include_deleted=False,
+                version=None,
+                sort_order="desc",
+                page=1,
+                limit=100,
+            )
+
+        # Deleting a form must not hide its saved history.
+        self.assertEqual(versions, [active])
+        query = collection.find_one.await_args.args[0]
+        self.assertNotIn("isDeleted", query)
+
     async def test_delete_is_soft_and_never_targets_active_version(self) -> None:
         form_id = ObjectId()
         historical_id = ObjectId()
@@ -414,6 +447,132 @@ class VersionDeletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             raised.exception.detail["code"], "MASTER_FORM_VERSION_IS_CURRENT"
         )
+
+    async def test_delete_active_version_falls_back_to_highest_remaining(self) -> None:
+        form_id = ObjectId()
+        previous_id = ObjectId()
+        active_id = ObjectId()
+        current = {
+            "_id": form_id,
+            "isDeleted": False,
+            "status": status_reference("ARCHIVED"),
+            "currentVersion": 2,
+            "versions": [
+                {
+                    "_id": previous_id,
+                    "version": 1,
+                    "status": "DRAFT",
+                    "snapshot": {"name": "Previous", "title": "Previous"},
+                },
+                {
+                    "_id": active_id,
+                    "version": 2,
+                    "status": "ARCHIVED",
+                    "snapshot": {"name": "Active", "title": "Active"},
+                },
+            ],
+        }
+        updated = {**current, "currentVersion": 1}
+        collection = Mock()
+        collection.find_one = AsyncMock(return_value=current)
+        collection.find_one_and_update = AsyncMock(return_value=updated)
+
+        with (
+            patch(
+                "app.services.master_forms.get_master_forms_collection",
+                return_value=collection,
+            ),
+            patch(
+                "app.services.master_forms.actor_object_id",
+                return_value=ObjectId(),
+            ),
+        ):
+            result = await delete_master_form_version(str(form_id), str(active_id))
+
+        self.assertIs(result, updated)
+        query, update = collection.find_one_and_update.await_args.args[:2]
+        self.assertEqual(query["currentVersion"], 2)
+        self.assertEqual(update["$set"]["currentVersion"], 1)
+        self.assertEqual(update["$set"]["name"], "Previous")
+        self.assertEqual(update["$set"]["title"], "Previous")
+        self.assertEqual(update["$set"]["versions.$[target].isDeleted"], True)
+        self.assertNotIn("versions.$.isDeleted", update["$set"])
+
+    async def test_delete_rejects_the_only_saved_version(self) -> None:
+        form_id = ObjectId()
+        active_id = ObjectId()
+        current = {
+            "_id": form_id,
+            "isDeleted": False,
+            "status": status_reference("ARCHIVED"),
+            "currentVersion": 1,
+            "versions": [
+                {
+                    "_id": active_id,
+                    "version": 1,
+                    "status": "ARCHIVED",
+                    "snapshot": {"name": "Only", "title": "Only"},
+                }
+            ],
+        }
+        collection = Mock()
+        collection.find_one = AsyncMock(return_value=current)
+        collection.find_one_and_update = AsyncMock()
+
+        with (
+            patch(
+                "app.services.master_forms.get_master_forms_collection",
+                return_value=collection,
+            ),
+            patch(
+                "app.services.master_forms.actor_object_id",
+                return_value=ObjectId(),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await delete_master_form_version(str(form_id), str(active_id))
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.detail["code"], "MASTER_FORM_LAST_VERSION")
+        collection.find_one_and_update.assert_not_awaited()
+
+    async def test_version_delete_does_not_delete_the_form(self) -> None:
+        form_id = ObjectId()
+        historical_id = ObjectId()
+        current = {
+            "_id": form_id,
+            "isDeleted": False,
+            "status": status_reference("ARCHIVED"),
+            "currentVersion": 2,
+            "versions": [
+                {"_id": historical_id, "version": 1, "status": "ARCHIVED"},
+                {"_id": ObjectId(), "version": 2, "status": "ARCHIVED"},
+            ],
+        }
+        collection = Mock()
+        collection.find_one = AsyncMock(return_value=current)
+        collection.update_one = AsyncMock(return_value=Mock(modified_count=1))
+
+        with (
+            patch(
+                "app.services.master_forms.get_master_forms_collection",
+                return_value=collection,
+            ),
+            patch(
+                "app.services.master_forms.actor_object_id",
+                return_value=ObjectId(),
+            ),
+        ):
+            await delete_master_form_version(str(form_id), str(historical_id))
+
+        query, update = collection.update_one.await_args.args[:2]
+        # The form document itself must stay in the library: only the selected
+        # version entry is flagged, never the master-form isDeleted flag.
+        self.assertIs(query["isDeleted"], False)
+        self.assertNotIn("isDeleted", update["$set"])
+        self.assertNotIn("deletedAt", update["$set"])
+        self.assertEqual(update["$set"]["versions.$.isDeleted"], True)
+        self.assertFalse(current["isDeleted"])
 
     async def test_delete_rejects_unarchived_historical_version(self) -> None:
         form_id = ObjectId()

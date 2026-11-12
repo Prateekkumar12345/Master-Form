@@ -281,7 +281,8 @@ async def update_master_form(masterFormId: str, payload: MasterFormPatch) -> dic
         "With `masterFormVersionId`, returns that single snapshot exactly as "
         "stored; pagination and sorting are ignored. `masterFormVersionId` is the "
         "version entry's `_id`, and cannot be combined with the `version` number "
-        "filter. The form must exist and must not be soft-deleted.\n\n"
+        "filter. The form must exist; its history stays readable after the form "
+        "is soft-deleted so saved versions can still be reviewed.\n\n"
         + developer_metadata(
             'curl.exe "http://localhost:8000/api/v1/master-forms/6ae436c49f91d4bde87c9ac4/versions?page=1&limit=20"'
             + "\n\n"
@@ -291,7 +292,7 @@ async def update_master_form(masterFormId: str, payload: MasterFormPatch) -> dic
     responses={
         200: {"description": "Matching version history or the requested snapshot."},
         400: {"description": "A supplied ID is not a valid ObjectId."},
-        404: {"description": "Form or requested version not found, or the form is soft-deleted."},
+        404: {"description": "Form or requested version not found."},
         409: {"description": "The form does not have exactly one active saved version."},
         422: {
             "description": (
@@ -401,10 +402,13 @@ async def update_master_form_version_status(
 @router.delete(
     "/{masterFormId}/versions/{masterFormVersionId}",
     summary="Delete a master form version",
-    response_description="The soft-deleted snapshot and unchanged currentVersion.",
+    response_description="The soft-deleted snapshot and the resulting active version.",
     description=(
-        "Soft-deletes an archived, inactive snapshot from a form in any lifecycle "
-        "status. Archive the version first. The active version cannot be deleted. "
+        "Soft-deletes an archived snapshot from a form in any lifecycle status. "
+        "Archive a historical version first. On an archived form the active "
+        "version can also be deleted when another version remains: the highest "
+        "remaining version becomes active and its saved definition is applied to "
+        "the form. The only remaining version cannot be deleted. "
         "Version numbers and snapshot data are retained. "
         "Deleted snapshots are hidden from version history by default; use "
         "`includeDeleted=true` to view and restore them.\n\n"
@@ -420,9 +424,9 @@ async def update_master_form_version_status(
         404: {"description": "Form or version not found, or the form is soft-deleted."},
         409: {
             "description": (
-                "The version is current, not archived, or already deleted, the active version "
-                "is invalid, or a concurrent "
-                "update occurred."
+                "The version is not archived or already deleted, the active version "
+                "is the only saved version or the form is not archived, the active "
+                "version is invalid, or a concurrent update occurred."
             )
         },
     },

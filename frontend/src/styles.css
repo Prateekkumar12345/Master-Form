@@ -2553,15 +2553,30 @@ p {
 .version-list-head {
   display: flex;
   gap: 8px;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   padding: 0 4px 9px;
+}
+
+.version-list-form {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .version-list-head h3 {
   margin: 0;
   font-size: 13px;
   font-weight: 650;
+}
+
+.version-list-form small {
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .version-list-head span {
@@ -2736,6 +2751,42 @@ p {
   color: #92400e;
   background: #fffbeb;
   border-top: 1px solid #fde68a;
+}
+
+.version-action-hint {
+  margin: -6px 0 12px;
+  font-size: 11.5px;
+}
+
+.version-danger-zone {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+}
+
+.version-danger-zone h4 {
+  margin: 0 0 3px;
+  font-size: 12.5px;
+  color: #991b1b;
+}
+
+.version-danger-zone p {
+  max-width: 560px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #7f1d1d;
+}
+
+.version-danger-zone .btn {
+  flex-shrink: 0;
 }
 
 .snapshot {

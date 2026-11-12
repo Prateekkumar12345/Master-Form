@@ -235,14 +235,32 @@ export function VersionHistory({
       : "";
   const canChangeCurrentDraft =
     Boolean(selected) &&
+    !form.isDeleted &&
     !selected?.isDeleted &&
     isCurrent &&
     codeOf(form.status) === "DRAFT";
+  const availableVersionCount = versions.filter(
+    (version) => !version.isDeleted,
+  ).length;
+  // The active version can be removed only from an archived form that keeps at
+  // least one other saved version; the highest remaining version takes over.
+  const canDeleteActiveVersion =
+    canDeleteVersion &&
+    !form.isDeleted &&
+    codeOf(form.status) === "ARCHIVED" &&
+    availableVersionCount > 1;
+  // Only a version that was deleted itself renders as "Deleted". Deleting the
+  // form keeps its snapshots intact, so each version keeps its own status.
+  const deletedState = (version: VersionEntry) => Boolean(version.isDeleted);
+  const selectedDeleted = selected ? deletedState(selected) : false;
   return (
     <div className="version-layout">
       <aside className="version-list">
         <div className="version-list-head">
-          <h3>Versions</h3>
+          <div className="version-list-form">
+            <h3>Versions</h3>
+            <small>{form.name} · {form.formCode}</small>
+          </div>
           <span>{versions.length} total</span>
         </div>
         {versions.map((version) => {
@@ -250,6 +268,7 @@ export function VersionHistory({
             version.version === form.currentVersion
               ? codeOf(form.status)
               : version.status ?? "DRAFT";
+          const isDeletedEntry = deletedState(version);
           return (
             <button
               className={`version-item${
@@ -270,16 +289,15 @@ export function VersionHistory({
               <span className="version-copy">
                 <strong>
                   Version {version.version}
-                  {!version.isDeleted ? (
+                  {isDeletedEntry ? (
+                    <em className="deleted-tag">Deleted</em>
+                  ) : (
                     <em
                       className={`lifecycle-${lifecycleStatus.toLowerCase()}`}
                     >
                       {labelize(lifecycleStatus)}
                     </em>
-                  ) : null}
-                  {version.isDeleted ? (
-                    <em className="deleted-tag">Deleted</em>
-                  ) : null}
+                  )}
                 </strong>
                 <small>
                   {version.isDeleted && version.deletedAt
@@ -294,7 +312,7 @@ export function VersionHistory({
         {!versions.length && !loading ? (
           <p className="small muted version-empty">
             {form.isDeleted
-              ? "Version history is unavailable while the form is deleted."
+              ? "No saved versions were found for this deleted form."
               : "No versions were returned for this form."}
           </p>
         ) : null}
@@ -304,19 +322,10 @@ export function VersionHistory({
       <div className="version-detail">
         {form.isDeleted ? (
           <Notice tone="info">
-            This form has been deleted from the library. You can restore it to
-            make it available again.
-            <div className="button-row">
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={busy === "restore-form"}
-                type="button"
-                onClick={onRestoreForm}
-              >
-                <Icon name="restore" size={15} />
-                {busy === "restore-form" ? "Restoring…" : "Restore form"}
-              </button>
-            </div>
+            <strong>{form.name}</strong> ({form.formCode}) has been deleted from
+            the form library. Its saved versions are kept and remain readable
+            below. Use <strong>Restore form</strong> to edit, publish, or reuse a
+            version again.
           </Notice>
         ) : null}
         {selected ? (
@@ -335,20 +344,31 @@ export function VersionHistory({
               <div className="button-row">
                 <span
                   className={`status-badge ${
-                    selected.isDeleted
+                    selectedDeleted
                       ? "status-neutral"
                       : `status-${selectedLifecycleStatus.toLowerCase()}`
                   }`}
                 >
-                  {selected.isDeleted
-                    ? "Deleted version"
-                    : labelize(selectedLifecycleStatus)}
+                  {selectedDeleted ? "Deleted" : labelize(selectedLifecycleStatus)}
                 </span>
+                {form.isDeleted ? (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={busy === "restore-form"}
+                    title="Restores the whole form to the library. Saved versions are not changed."
+                    type="button"
+                    onClick={onRestoreForm}
+                  >
+                    <Icon name="restore" size={15} />
+                    {busy === "restore-form" ? "Restoring…" : "Restore form"}
+                  </button>
+                ) : null}
                 {!selected.isDeleted &&
+                !form.isDeleted &&
                 selectedLifecycleStatus !== "ARCHIVED" &&
                 canEditVersion(selected) ? (
                   <button
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-danger btn-sm"
                     disabled={busy === `edit-${selected._id}`}
                     type="button"
                     onClick={() => onEdit(selected)}
@@ -409,17 +429,6 @@ export function VersionHistory({
                         ? "Moving to draft…"
                         : "Move form to draft"}
                     </button>
-                    {canDeleteForm ? (
-                      <button
-                        className="btn btn-danger btn-sm"
-                        disabled={busy === "delete-form"}
-                        type="button"
-                        onClick={onDeleteForm}
-                      >
-                        <Icon name="trash" size={15} />
-                        {busy === "delete-form" ? "Deleting…" : "Delete form"}
-                      </button>
-                    ) : null}
                   </>
                 ) : null}
                 {canReopenForm &&
@@ -522,8 +531,8 @@ export function VersionHistory({
                 ) : null}
                 {canDeleteVersion &&
                 !selected.isDeleted &&
-                !isCurrent &&
-                selectedLifecycleStatus === "ARCHIVED" ? (
+                ((!isCurrent && selectedLifecycleStatus === "ARCHIVED") ||
+                  (isCurrent && canDeleteActiveVersion)) ? (
                   <button
                     className="btn btn-danger btn-sm"
                     disabled={busy === `delete-version-${selected._id}`}
@@ -536,7 +545,7 @@ export function VersionHistory({
                       : "Delete version"}
                   </button>
                 ) : null}
-                {selected.isDeleted && canRestoreVersions ? (
+                {selected.isDeleted && !form.isDeleted && canRestoreVersions ? (
                   <button
                     className="btn btn-secondary btn-sm"
                     disabled={busy === `restore-${selected._id}`}
@@ -551,6 +560,27 @@ export function VersionHistory({
                 ) : null}
               </div>
             </header>
+            {!selected.isDeleted && !form.isDeleted ? (
+              isCurrent ? (
+                canDeleteActiveVersion ? (
+                  <p className="small muted version-action-hint">
+                    Deleting the active version makes the highest remaining
+                    version active and applies its saved definition to the form.
+                  </p>
+                ) : (
+                  <p className="small muted version-action-hint">
+                    {codeOf(form.status) === "ARCHIVED"
+                      ? "Keep at least one other saved version to delete the active version."
+                      : "This is the active version, so it follows the form lifecycle. Archive the form before deleting it."}
+                  </p>
+                )
+              ) : selectedLifecycleStatus !== "ARCHIVED" && canArchiveVersion ? (
+                <p className="small muted version-action-hint">
+                  This version is a draft. Archive it first to enable Delete
+                  version.
+                </p>
+              ) : null
+            ) : null}
             {selected.isDeleted ? (
               <Notice tone="info">
                 This version is deleted. Restore it to make it available for
@@ -566,6 +596,28 @@ export function VersionHistory({
             <p>Choose a saved version to see the form as it looked then.</p>
           </div>
         )}
+        {canDeleteForm ? (
+          <section className="version-danger-zone">
+            <div>
+              <h4>Delete this form from the library</h4>
+              <p>
+                Removes the whole form from the form library. Saved versions
+                stay stored and can be recovered by restoring the form. To
+                remove only a single version, archive it and use Delete version
+                instead.
+              </p>
+            </div>
+            <button
+              className="btn btn-danger btn-sm"
+              disabled={busy === "delete-form"}
+              type="button"
+              onClick={onDeleteForm}
+            >
+              <Icon name="trash" size={15} />
+              {busy === "delete-form" ? "Deleting…" : "Delete form"}
+            </button>
+          </section>
+        ) : null}
       </div>
 
       {canPublishSelected && codeOf(form.status) === "PUBLISHED" ? (
