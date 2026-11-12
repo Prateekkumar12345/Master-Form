@@ -124,7 +124,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
     setForm(updated);
     if (codeOf(updated.status) === "PUBLISHED") {
       setNotice(
-        `Version ${version.version} is now published. The previously published version is now a draft.`,
+        `Version ${version.version} is now published. The previous active version is now a draft.`,
       );
     } else if (codeOf(updated.status) === "ARCHIVED") {
       setNotice(
@@ -404,7 +404,8 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
       ? {
         title: `Publish version ${confirm.version.version}?`,
         message:
-          codeOf(form?.status) === "DRAFT"
+          codeOf(form?.status) === "DRAFT" ||
+          codeOf(form?.status) === "ARCHIVED"
             ? "The selected draft version becomes the active published definition, and the form status changes to Published. The previous current version remains saved as a draft."
             : "The selected draft version becomes the published definition, and the previously published version becomes a draft. No new version is created and saved snapshots are unchanged.",
         label:
@@ -590,7 +591,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
               canMoveVersionToDraft={!form.isDeleted}
               canPublishSelected={
                 !form.isDeleted &&
-                ["DRAFT", "PUBLISHED"].includes(codeOf(form.status))
+                ["DRAFT", "PUBLISHED", "ARCHIVED"].includes(codeOf(form.status))
               }
               canEditVersion={(version) =>
                 editable ||

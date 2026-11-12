@@ -679,13 +679,13 @@ async def get_master_form_versions(
 async def switch_master_form_version(
     master_form_id: str, master_form_version_id: str
 ) -> dict[str, Any]:
-    """Publish a saved draft version on a draft or published form.
+    """Publish a saved draft version on a draft, published, or archived form.
 
     Switching only moves ``currentVersion`` and copies the selected snapshot
     into the form definition. No new version is created, no snapshot is
     modified, and no snapshot is removed. The previously active version becomes
-    a draft. Publishing a version on a draft form also publishes the form.
-    Archived forms must first be reopened as drafts.
+    a draft. Publishing a version on a draft or archived form also publishes the
+    form.
     """
     form_id = object_id(master_form_id)
     version_id = version_object_id(master_form_version_id)
@@ -696,12 +696,6 @@ async def switch_master_form_version(
         raise api_error(404, "MASTER_FORM_NOT_FOUND", "Master form was not found.")
     require_active_version(current)
     source_status = codes_for_validation(current)["status"]
-    if source_status not in {"DRAFT", "PUBLISHED"}:
-        raise api_error(
-            409,
-            "INVALID_MASTER_FORM_STATUS",
-            "Only draft or published forms can publish a saved version. Reopen an archived form as a draft first.",
-        )
     source = require_version(current, version_id)
     if source.get("isDeleted", False):
         raise api_error(
@@ -744,7 +738,7 @@ async def switch_master_form_version(
         "updatedAt": now,
     }
     update_document: dict[str, Any] = {"$set": updates}
-    if source_status == "DRAFT":
+    if source_status in {"DRAFT", "ARCHIVED"}:
         updates["status"] = reference_for(
             "PUBLISHED", FORM_STATUS, value_references
         )

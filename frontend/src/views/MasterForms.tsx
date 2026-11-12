@@ -153,6 +153,14 @@ export function MasterForms({
 
   const runLibraryAction = async () => {
     if (!pendingAction || actionBusy) return;
+    if (
+      pendingAction.kind === "delete" &&
+      codeOf(pendingAction.form.status) !== "ARCHIVED"
+    ) {
+      setPendingAction(null);
+      setError("Only archived forms can be deleted. Reopen this form as a draft first.");
+      return;
+    }
     setActionBusy(true);
     setError("");
     const { kind, form } = pendingAction;
@@ -374,7 +382,7 @@ export function MasterForms({
                 <div className="form-card-footer">
                   <span>Updated {formatDate(form.updatedAt)}</span>
                   <div className="card-actions">
-                    {!form.isDeleted ? (
+                    {!form.isDeleted && codeOf(form.status) === "ARCHIVED" ? (
                       <button
                         aria-label={`Delete ${form.name}`}
                         className="btn btn-danger btn-sm"
@@ -500,7 +508,7 @@ export function MasterForms({
         open={Boolean(pendingAction)}
         title={
           pendingAction?.kind === "delete"
-            ? "Delete this archived form?"
+            ? `Delete this ${labelize(codeOf(pendingAction.form.status)).toLowerCase()} form?`
             : "Restore this form?"
         }
         tone={pendingAction?.kind === "delete" ? "danger" : "primary"}

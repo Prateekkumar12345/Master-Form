@@ -381,7 +381,9 @@ export function VersionHistory({
                 ) : null}
                 {!selected.isDeleted &&
                 canPublishSelected &&
-                ["DRAFT", "PUBLISHED"].includes(codeOf(form.status)) &&
+                ["DRAFT", "PUBLISHED", "ARCHIVED"].includes(
+                  codeOf(form.status),
+                ) &&
                 !isCurrent &&
                 selectedLifecycleStatus !== "ARCHIVED" ? (
                   <button

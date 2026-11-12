@@ -36,7 +36,7 @@ Health check: <http://127.0.0.1:8000/api/v1/health>
 | GET | `/api/v1/master-forms` | List forms with filters, pagination, and optional soft-deleted forms |
 | PATCH | `/api/v1/master-forms/{masterFormId}` | Update current or selected version, or change status |
 | GET | `/api/v1/master-forms/{masterFormId}/versions` | Retrieve version history, or one version with `?masterFormVersionId=`; `includeDeleted=true` includes deleted snapshots. History stays readable after the form is soft-deleted |
-| PATCH | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}` | Set a saved version to `PUBLISHED`, `ARCHIVED`, or `DRAFT` |
+| PATCH | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}` | Set a saved version to `PUBLISHED`, `ARCHIVED`, or `DRAFT`. Publishing a saved draft on a DRAFT or ARCHIVED form also makes the form `PUBLISHED` |
 | DELETE | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}` | Soft-delete an archived version. On an archived form the active version can be deleted when another version remains; the highest remaining version becomes active. The master form stays in the library |
 | POST | `/api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}/restore` | Restore a deleted version in any form status without making it active |
 | DELETE | `/api/v1/master-forms/{masterFormId}` | Soft-delete an archived form |
@@ -127,7 +127,7 @@ Status transitions:
 | PUBLISHED | ARCHIVED | Archive the active published version; no replacement version is required |
 | PUBLISHED | DRAFT | Reopen a selected saved version for editing; no new version |
 | ARCHIVED | DRAFT | Reopen for editing; no new version |
-| ARCHIVED | PUBLISHED | Rejected; reopen as DRAFT first |
+| ARCHIVED | PUBLISHED | Not allowed through the form endpoint; publish a saved version to make the form PUBLISHED |
 
 A PUBLISHED form can be archived directly by calling
 `PATCH /api/v1/master-forms/{masterFormId}` with `{"status":"ARCHIVED"}`.
@@ -144,18 +144,19 @@ from `GET /api/v1/master-forms/{masterFormId}/versions`: pass
 number filter with `sortOrder`, `page`, and `limit` to page through the history.
 Update a saved version with
 `PATCH /api/v1/master-forms/{masterFormId}/versions/{masterFormVersionId}`
-and a `status` body. `PUBLISHED` activates the selected saved version on a DRAFT or PUBLISHED
+and a `status` body. `PUBLISHED` activates the selected saved version on a DRAFT, PUBLISHED, or ARCHIVED
 form, making the parent form PUBLISHED and the previous active version DRAFT.
 `ARCHIVED` archives
 only an inactive version, and `DRAFT` moves an archived inactive version back
 to DRAFT; neither changes the parent form's status or active version. The
 active version is managed through the master-form lifecycle.
 
-Deleting a historical version affects only that snapshot: the master form stays
-in the form library with its current definition, and other versions are
+Deleting a historical version requires it to be archived first; the master form
+stays in the form library with its current definition, and other versions are
 unchanged. The snapshot is soft-deleted without renumbering the rest, so it can
-be restored later. The current version and the last
-remaining snapshot can never be deleted. A master form can be soft-deleted
+be restored later. The active version can be deleted on an archived form when
+another version remains; the last remaining snapshot can never be deleted. A
+master form can be soft-deleted
 regardless of its lifecycle status. Deleting a form never removes its saved
 version snapshots: the version-history endpoint keeps returning them so they
 can be reviewed, and they become fully usable again when the form is restored.

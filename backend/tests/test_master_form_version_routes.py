@@ -272,6 +272,82 @@ class PublishedVersionSwitchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["$set"]["versions.$[selected].status"], "PUBLISHED")
         self.assertEqual(result["status"], {"code": "PUBLISHED"})
 
+    async def test_publishing_saved_version_on_archived_form_publishes_form(self) -> None:
+        form_id = ObjectId()
+        selected_version_id = ObjectId()
+        current_version_id = ObjectId()
+        selected_snapshot = {
+            "name": "Nutrition Assessment",
+            "formType": "ASSESSMENT",
+            "title": "Selected draft",
+            "layout": "SINGLE_PAGE",
+            "Buttons": [],
+            "sections": [],
+        }
+        current = {
+            "_id": form_id,
+            "status": {"code": "ARCHIVED"},
+            "currentVersion": 2,
+            "versions": [
+                {
+                    "_id": selected_version_id,
+                    "version": 1,
+                    "status": "DRAFT",
+                    "snapshot": selected_snapshot,
+                },
+                {
+                    "_id": current_version_id,
+                    "version": 2,
+                    "status": "ARCHIVED",
+                    "snapshot": {**selected_snapshot, "title": "Archived title"},
+                },
+            ],
+        }
+        collection = Mock()
+        collection.find_one = AsyncMock(return_value=current)
+        collection.find_one_and_update = AsyncMock(
+            return_value={
+                **current,
+                **selected_snapshot,
+                "status": {"code": "PUBLISHED"},
+                "currentVersion": 1,
+            }
+        )
+
+        with (
+            patch("app.services.master_forms.actor_object_id", return_value=ObjectId()),
+            patch(
+                "app.services.master_forms.get_master_forms_collection",
+                return_value=collection,
+            ),
+            patch(
+                "app.services.master_forms.load_value_set_references",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "app.services.master_forms.references_for_storage",
+                side_effect=lambda document, _values: document,
+            ),
+            patch(
+                "app.services.master_forms.reference_for",
+                side_effect=lambda code, _set, _values: {"code": code},
+            ),
+        ):
+            result = await switch_master_form_version(
+                str(form_id), str(selected_version_id)
+            )
+
+        query, update = collection.find_one_and_update.await_args.args[:2]
+        self.assertEqual(query["status.code"], "ARCHIVED")
+        self.assertEqual(query["currentVersion"], 2)
+        self.assertEqual(update["$set"]["status"], {"code": "PUBLISHED"})
+        self.assertEqual(update["$set"]["currentVersion"], 1)
+        self.assertEqual(update["$set"]["versions.$[previous].status"], "DRAFT")
+        self.assertEqual(update["$set"]["versions.$[selected].status"], "PUBLISHED")
+        self.assertEqual(update["$unset"], {"lastPublishedSwitch": ""})
+        self.assertEqual(result["status"], {"code": "PUBLISHED"})
+
 
 class ActiveVersionInvariantTests(unittest.TestCase):
     def test_requires_exactly_one_active_version(self) -> None:

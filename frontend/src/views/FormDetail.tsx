@@ -353,7 +353,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
     const nextStatus = codeOf(updated.status);
     if (nextStatus === "PUBLISHED") {
       setNotice(
-        `Version ${version.version} is now published. The previously published version is now a draft.`,
+        `Version ${version.version} is now published. The previous active version is now a draft.`,
       );
     } else if (nextStatus === "ARCHIVED") {
       setNotice(
@@ -502,7 +502,7 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
           ? {
               title: `Publish version ${confirm.version.version}?`,
               message:
-                status === "DRAFT"
+                status === "DRAFT" || status === "ARCHIVED"
                   ? "The selected draft version becomes the active published definition, and the form status changes to Published. The previous current version remains saved as a draft."
                   : "The selected draft version becomes the published definition, and the previously published version becomes a draft. No new version is created and saved snapshots are unchanged.",
               label: status === "DRAFT" ? "Publish form" : "Publish version",
@@ -1203,7 +1203,9 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
             canMoveVersionToDraft={!form.isDeleted}
             canPublishSelected={
               !form.isDeleted &&
-              (status === "DRAFT" || status === "PUBLISHED")
+              (status === "DRAFT" ||
+                status === "PUBLISHED" ||
+                status === "ARCHIVED")
             }
             canEditVersion={(version) =>
               canEdit ||
