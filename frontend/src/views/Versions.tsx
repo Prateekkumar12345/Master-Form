@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FormBuilder } from "../components/FormBuilder";
-import { Icon } from "../components/Icon";
+import { Icon, type IconName } from "../components/Icon";
 import { Notice } from "../components/Notice";
 import { StatusBadge } from "../components/StatusBadge";
 import { VersionHistory } from "../components/VersionHistory";
@@ -10,6 +10,8 @@ import { formFromVersion } from "../formModel";
 import { useApi } from "../context/ApiContext";
 import type { MasterForm, VersionEntry } from "../types";
 import { canEditForm, codeOf, errorMessage } from "../utils";
+
+type FormFilter = "active" | "deleted" | "all";
 
 type PendingAction =
   | { kind: "publish"; version: VersionEntry }
@@ -27,6 +29,7 @@ interface VersionsProps {
 export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
   const { send } = useApi();
   const [forms, setForms] = useState<MasterForm[]>([]);
+  const [formFilter, setFormFilter] = useState<FormFilter>("active");
   const [formId, setFormId] = useState(initialId);
   const [form, setForm] = useState<MasterForm | null>(null);
   const [versions, setVersions] = useState<VersionEntry[]>([]);
@@ -54,12 +57,44 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
     }
     const list = (result.payload?.data ?? []) as MasterForm[];
     setForms(list);
-    setFormId((current) => current || list[0]?._id || "");
   }, [send]);
 
   useEffect(() => {
     void loadForms();
   }, [loadForms]);
+
+  const visibleForms = useMemo(() => {
+    if (formFilter === "deleted") return forms.filter((item) => item.isDeleted);
+    if (formFilter === "active") return forms.filter((item) => !item.isDeleted);
+    return forms;
+  }, [formFilter, forms]);
+
+  useEffect(() => {
+    if (!forms.length) return;
+    if (initialId) {
+      const initial = forms.find((item) => item._id === initialId);
+      if (initial) {
+        setFormFilter(initial.isDeleted ? "deleted" : "active");
+        setFormId(initialId);
+      }
+    }
+    // Only react to initial form data/load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialId, forms.length > 0]);
+
+  useEffect(() => {
+    if (!visibleForms.length) {
+      setFormId("");
+      setForm(null);
+      setVersions([]);
+      return;
+    }
+    setFormId((current) =>
+      current && visibleForms.some((item) => item._id === current)
+        ? current
+        : visibleForms[0]._id,
+    );
+  }, [visibleForms]);
 
   const loadHistory = useCallback(
     async (id: string) => {
@@ -318,6 +353,15 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
       setError(errorMessage(result));
       return;
     }
+    const restoredForm = result.payload?.data as MasterForm | undefined;
+    if (restoredForm) {
+      setForms((current) =>
+        current.map((item) => (item._id === restoredId ? restoredForm : item)),
+      );
+      setForm(restoredForm);
+      setFormId(restoredId);
+      if (formFilter === "deleted") setFormFilter("active");
+    }
     setNotice("The form was restored to the library.");
     await loadForms();
     await loadHistory(restoredId);
@@ -459,7 +503,10 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
 
   const editable = canEditForm(form);
   const selectedForm =
-    forms.find((item) => item._id === formId) ?? form ?? null;
+    visibleForms.find((item) => item._id === formId) ??
+    forms.find((item) => item._id === formId) ??
+    form ??
+    null;
 
   return (
     <div className="view">
@@ -500,11 +547,45 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
       ) : null}
 
       <section className="panel versions-picker">
+        <div className="library-subbar">
+          <div className="segmented" role="tablist" aria-label="Form state">
+            {(
+              [
+                ["active", "Active", "forms"],
+                ["deleted", "Deleted", "trash"],
+                ["all", "All forms", "layers"],
+              ] as [FormFilter, string, IconName][]
+            ).map(([key, label, icon]) => (
+              <button
+                aria-selected={formFilter === key}
+                className={`segment${formFilter === key ? " active" : ""}`}
+                key={key}
+                role="tab"
+                type="button"
+                onClick={() => {
+                  setFormFilter(key);
+                  setNotice("");
+                  setError("");
+                }}
+              >
+                <Icon name={icon} size={15} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="library-count">
+            {loadingForms
+              ? "Loading forms…"
+              : `${visibleForms.length} ${
+                  visibleForms.length === 1 ? "form" : "forms"
+                } in this section`}
+          </span>
+        </div>
         <label className="field picker-field">
           <span className="field-label">Choose a form</span>
           <select
             className="input"
-            disabled={loadingForms}
+            disabled={loadingForms || !visibleForms.length}
             value={formId}
             onChange={(event) => {
               setNotice("");
@@ -512,17 +593,20 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
               setFormId(event.target.value);
             }}
           >
-            {!forms.length ? (
+            {!visibleForms.length ? (
               <option value="">No forms available</option>
             ) : null}
-            {forms.map((item) => (
+            {visibleForms.map((item) => (
               <option key={item._id} value={item._id}>
                 {item.name} · {item.formCode}
+                {item.isDeleted ? " (Deleted)" : ""}
               </option>
             ))}
           </select>
           <span className="field-hint">
-            Deleted forms are included so you can restore them from version history.
+            {formFilter === "deleted"
+              ? "Deleted forms appear here. Open one to restore it from its version history."
+              : "Switch to Deleted to find forms removed from the library and restore them."}
           </span>
         </label>
         {form ? (
@@ -556,12 +640,19 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
       ) : !selectedForm ? (
         <div className="panel empty-panel">
           <span className="empty-icon">
-            <Icon name="forms" size={28} />
+            <Icon name={formFilter === "deleted" ? "trash" : "forms"} size={28} />
           </span>
-          <h2>No forms to show</h2>
+          <h2>
+            {formFilter === "deleted"
+              ? "No deleted forms"
+              : "No forms to show"}
+          </h2>
           <p>
-            Create a form in the library first, then its versions will appear
-            here.
+            {formFilter === "deleted"
+              ? "Deleted forms will appear here so you can review and restore them."
+              : formFilter === "active"
+                ? "Create a form in the library first, then its versions will appear here."
+                : "No forms are available in this workspace yet."}
           </p>
         </div>
       ) : loading && !form ? (
@@ -622,7 +713,7 @@ export function Versions({ initialId = "", onOpenForm }: VersionsProps) {
               onPublishSelected={(version) =>
                 setConfirm({ kind: "publish", version })
               }
-              versions={versions}
+              versions={versions.filter((version) => !version.isDeleted)}
             />
           ) : null}
         </section>

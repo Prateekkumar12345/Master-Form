@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { FormBuilder } from "../components/FormBuilder";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FormBuilder } from "../components/FormBuilder";
+import { FormLibraryCard } from "../components/FormLibraryCard";
 import { Icon, type IconName } from "../components/Icon";
 import { Notice } from "../components/Notice";
-import { StatusBadge } from "../components/StatusBadge";
 import { useApi } from "../context/ApiContext";
 import { FORM_TYPE_OPTIONS } from "../formModel";
 import { clearStoredFormDraft } from "../formDraftStorage";
 import type { MasterForm } from "../types";
-import {
-  STATUSES,
-  codeOf,
-  errorMessage,
-  formatDate,
-  labelize,
-} from "../utils";
+import { STATUSES, codeOf, errorMessage, labelize } from "../utils";
 
 interface MasterFormsProps {
   onOpenForm: (id: string) => void;
@@ -44,12 +38,7 @@ function typeIcon(type: string): IconName {
   return "layers";
 }
 
-function questionsIn(form: MasterForm): number {
-  return (form.sections ?? []).reduce(
-    (total, section) => total + (section.fields?.length ?? 0),
-    0,
-  );
-}
+
 
 export function MasterForms({
   onOpenForm,
@@ -153,14 +142,6 @@ export function MasterForms({
 
   const runLibraryAction = async () => {
     if (!pendingAction || actionBusy) return;
-    if (
-      pendingAction.kind === "delete" &&
-      codeOf(pendingAction.form.status) !== "ARCHIVED"
-    ) {
-      setPendingAction(null);
-      setError("Only archived forms can be deleted. Reopen this form as a draft first.");
-      return;
-    }
     setActionBusy(true);
     setError("");
     const { kind, form } = pendingAction;
@@ -353,70 +334,17 @@ export function MasterForms({
         ) : forms.length ? (
           <div className="form-grid">
             {forms.map((form) => (
-              <article
-                className={`form-card${form.isDeleted ? " form-card-deleted" : ""}`}
+              <FormLibraryCard
                 key={form._id}
-              >
-                <div className="form-card-top">
-                  <span
-                    className={`form-type-icon type-${codeOf(
-                      form.formType,
-                    ).toLowerCase()}`}
-                  >
-                    <Icon name={typeIcon(codeOf(form.formType))} size={20} />
-                  </span>
-                  <StatusBadge
-                    deleted={form.isDeleted}
-                    status={codeOf(form.status)}
-                  />
-                </div>
-                <div className="form-card-body">
-                  <h2>{form.name}</h2>
-                  <p>{form.description || "No description added yet."}</p>
-                </div>
-                <div className="form-card-tags">
-                  <span>{labelize(codeOf(form.formType))}</span>
-                  <span>v{form.currentVersion}</span>
-                  <span>{questionsIn(form)} fields</span>
-                </div>
-                <div className="form-card-footer">
-                  <span>Updated {formatDate(form.updatedAt)}</span>
-                  <div className="card-actions">
-                    {!form.isDeleted && codeOf(form.status) === "ARCHIVED" ? (
-                      <button
-                        aria-label={`Delete ${form.name}`}
-                        className="btn btn-danger btn-sm"
-                        disabled={actionBusy}
-                        type="button"
-                        onClick={() => setPendingAction({ kind: "delete", form })}
-                      >
-                        <Icon name="trash" size={14} />
-                        Delete
-                      </button>
-                    ) : null}
-                    {form.isDeleted ? (
-                      <button
-                        aria-label={`Restore ${form.name}`}
-                        className="btn btn-secondary btn-sm"
-                        disabled={actionBusy}
-                        type="button"
-                        onClick={() => setPendingAction({ kind: "restore", form })}
-                      >
-                        <Icon name="restore" size={14} />
-                        Restore
-                      </button>
-                    ) : null}
-                    <button
-                      aria-label={`Open ${form.name}`}
-                      className="card-open card-open-button"
-                      type="button"
-                      onClick={() => onOpenForm(form._id)}
-                    >
-                      Open <Icon name="arrow-right" size={14} />
-                    </button>
-                  </div>
-                </div>
-              </article>
+                actionBusy={actionBusy}
+                form={form}
+                onDelete={(target) => setPendingAction({ kind: "delete", form: target })}
+                onOpen={onOpenForm}
+                onRestore={(target) =>
+                  setPendingAction({ kind: "restore", form: target })
+                }
+                typeIcon={typeIcon(codeOf(form.formType))}
+              />
             ))}
           </div>
         ) : (

@@ -27,7 +27,7 @@ import {
   validationSummary,
 } from "../utils";
 
-type Tab = "overview" | "questions" | "versions" | "preview";
+type Tab = "overview" | "questions" | "versions" | "deleted" | "preview";
 
 type PendingAction =
   | { kind: "archive" }
@@ -135,7 +135,8 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
   }, [loadForm]);
 
   useEffect(() => {
-    if ((tab !== "versions" && tab !== "preview") || !form) return;
+    if ((tab !== "versions" && tab !== "preview" && tab !== "deleted") || !form)
+      return;
     // Saved history stays readable for a deleted form; only actions are gated.
     void loadVersions();
     // Reload when the current definition changes.
@@ -144,6 +145,14 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
 
   const canEdit = canEditForm(form);
   const status = codeOf(form?.status) as FormStatus;
+  const deletedVersions = useMemo(
+    () => versions.filter((version) => version.isDeleted),
+    [versions],
+  );
+  const activeVersions = useMemo(
+    () => versions.filter((version) => !version.isDeleted),
+    [versions],
+  );
   const previewVersion =
     versions.find(
       (version) =>
@@ -646,8 +655,9 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
             ["overview", "Overview", "layers"],
             ["questions", "Fields", "forms"],
             ["versions", "Version history", "history"],
+            ["deleted", "Deleted", "trash"],
             ["preview", "Preview", "eye"],
-          ] as [Tab, string, "layers" | "forms" | "history" | "eye"][]
+          ] as [Tab, string, "layers" | "forms" | "history" | "trash" | "eye"][]
         ).map(([key, label, icon]) => (
           <button
             aria-selected={tab === key}
@@ -662,8 +672,11 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
             {key === "questions" ? (
               <span className="tab-count">{questions}</span>
             ) : null}
-            {key === "versions" && versions.length ? (
-              <span className="tab-count">{versions.length}</span>
+            {key === "versions" && activeVersions.length ? (
+              <span className="tab-count">{activeVersions.length}</span>
+            ) : null}
+            {key === "deleted" && deletedVersions.length ? (
+              <span className="tab-count">{deletedVersions.length}</span>
             ) : null}
           </button>
         ))}
@@ -1162,7 +1175,8 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
               <h2>Version history</h2>
               <p>
                 Review saved definitions and choose whether to edit the active
-                form or create a separate version.
+                form or create a separate version. Deleted versions are shown in
+                the Deleted tab.
               </p>
             </div>
             <div className="button-row">
@@ -1244,8 +1258,103 @@ export function FormDetail({ formId, onBack }: FormDetailProps) {
             onPublishSelected={(version) =>
               setConfirm({ kind: "publishVersion", version })
             }
-            versions={versions}
+            versions={activeVersions}
           />
+        </section>
+      ) : null}
+
+      {tab === "deleted" ? (
+        <section className="panel versions-panel">
+          <div className="panel-head">
+            <div>
+              <h2>Deleted</h2>
+              <p>
+                Deleted versions for this form are kept here so you can review
+                and restore them, similar to the Deleted section in the form
+                library.
+              </p>
+            </div>
+            <div className="button-row">
+              {form.isDeleted ? (
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={busy === "restore-form"}
+                  type="button"
+                  onClick={() => void restoreForm()}
+                >
+                  <Icon name="restore" size={15} />
+                  {busy === "restore-form" ? "Restoring…" : "Restore form"}
+                </button>
+              ) : null}
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={loadingVersions}
+                type="button"
+                onClick={() => void loadVersions()}
+              >
+                <Icon name="refresh" size={15} />
+                {loadingVersions ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+          </div>
+          {form.isDeleted ? (
+            <Notice tone="info">
+              This form is deleted. Restore it to make it available in the
+              library again. Its saved versions remain accessible below.
+            </Notice>
+          ) : null}
+          {!loadingVersions && deletedVersions.length === 0 ? (
+            <div className="empty-panel">
+              <span className="empty-icon">
+                <Icon name="trash" size={28} />
+              </span>
+              <h2>No deleted versions</h2>
+              <p>
+                When a version is deleted, it will appear here so you can restore
+                it later.
+              </p>
+            </div>
+          ) : (
+            <VersionHistory
+              busy={versionBusy ?? busy}
+              canReopenForm={false}
+              canArchiveForm={false}
+              canDeleteForm={false}
+              canRestoreVersions={!form.isDeleted}
+              canArchiveVersion={false}
+              canDeleteVersion={false}
+              canMoveVersionToDraft={false}
+              canPublishSelected={false}
+              canEditVersion={() => false}
+              form={form}
+              loading={loadingVersions}
+              onEdit={editVersion}
+              onRestore={restoreVersion}
+              onPublishCurrent={() => void changeStatus("PUBLISHED")}
+              onPublishPreviousVersion={(version) =>
+                setConfirm({ kind: "publishVersion", version })
+              }
+              onReopenForm={(version) =>
+                void changeStatus("DRAFT", version?._id)
+              }
+              onArchiveForm={() => setConfirm({ kind: "archive" })}
+              onDeleteForm={() => setConfirm({ kind: "deleteForm" })}
+              onRestoreForm={() => void restoreForm()}
+              onArchiveVersion={(version) =>
+                setConfirm({ kind: "archiveVersion", version })
+              }
+              onMoveVersionToDraft={(version) =>
+                setConfirm({ kind: "draftVersion", version })
+              }
+              onDeleteVersion={(version) =>
+                setConfirm({ kind: "deleteVersion", version })
+              }
+              onPublishSelected={(version) =>
+                setConfirm({ kind: "publishVersion", version })
+              }
+              versions={deletedVersions}
+            />
+          )}
         </section>
       ) : null}
 
